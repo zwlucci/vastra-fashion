@@ -1,0 +1,22 @@
+{
+  "name": "vastra",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Full-stack clothing e-commerce platform with React, Express, and PostgreSQL.",
+  "scripts": {
+    "dev": "pnpm --parallel --filter client --filter server dev",
+    "dev:client": "pnpm --filter client dev",
+    "dev:server": "pnpm --filter server dev",
+    "migrate": "pnpm --filter server migrate",
+    "seed": "pnpm --filter server seed",
+    "transfer:export": "pnpm --filter server transfer:export",
+    "transfer:import": "pnpm --filter server transfer:import",
+    "transfer:verify": "pnpm --filter server transfer:verify",
+    "check": "pnpm --filter server check && pnpm --filter client build"
+  },
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "packageManager": "pnpm@10.0.0"
+}

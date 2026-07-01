@@ -1,0 +1,133 @@
+import { ArrowRight, ChevronLeft, ChevronRight, Quote } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { api, getErrorMessage } from "../api/client.js";
+import { ProductGrid } from "../components/ProductGrid.jsx";
+import { UserAvatar } from "../components/UserAvatar.jsx";
+import { useAuth } from "../context/AuthContext.jsx";
+import { useNotification } from "../context/NotificationContext.jsx";
+
+const heroSlides = [
+  {
+    eyebrow: "New season · 2026",
+    title: "Style that moves with you.",
+    subtitle: "Discover expressive silhouettes, easy layers, and fresh pieces from independent VASTRA vendors.",
+    cta: "Shop new arrivals",
+    to: "/shop?sort=newest",
+    image: "/banners/runway-editorial-1.jpg",
+    imagePosition: "center 22%",
+    tone: "bg-[#e9dfd3] dark:bg-[#26211d]"
+  },
+  {
+    eyebrow: "The edit · Modern tailoring",
+    title: "Make an entrance. Keep your edge.",
+    subtitle: "Polished shapes meet confident color in a marketplace made for personal style.",
+    cta: "Explore the collection",
+    to: "/shop",
+    image: "/banners/runway-editorial-2.jpg",
+    imagePosition: "center 28%",
+    tone: "bg-[#dce2dd] dark:bg-[#1c2723]"
+  }
+];
+
+const valuePoints = [
+  ["Independent vendors", "Shop pieces from emerging and established fashion sellers."],
+  ["Curated styles", "Browse by gender, category, price, and brand without the noise."],
+  ["Fresh arrivals", "New approved products surface as vendors add their latest work."]
+];
+
+export function Home() {
+  const { isAuthenticated } = useAuth();
+  const { showNotice } = useNotification();
+  const [products, setProducts] = useState([]);
+  const [hotPicks, setHotPicks] = useState([]);
+  const [productsLoading, setProductsLoading] = useState(true);
+  const [hotPicksLoading, setHotPicksLoading] = useState(true);
+  const [reviews, setReviews] = useState([]);
+  const [reviewBody, setReviewBody] = useState("");
+  const [activeSlide, setActiveSlide] = useState(0);
+
+  useEffect(() => {
+    api.get("/products?sort=newest").then(({ data }) => setProducts(data.products || [])).catch(() => setProducts([])).finally(() => setProductsLoading(false));
+    api.get("/products?sort=popular&purchased=true").then(({ data }) => setHotPicks(data.products || [])).catch(() => setHotPicks([])).finally(() => setHotPicksLoading(false));
+    api.get("/reviews").then(({ data }) => setReviews(data.reviews || [])).catch(() => setReviews([]));
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setActiveSlide((current) => (current + 1) % heroSlides.length), 6500);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  function moveSlide(direction) {
+    setActiveSlide((current) => (current + direction + heroSlides.length) % heroSlides.length);
+  }
+
+  async function submitReview(event) {
+    event.preventDefault();
+    if (!isAuthenticated) {
+      showNotice("Please login to leave a review.", "warning", { label: "Login", to: "/login" });
+      return;
+    }
+    try {
+      await api.post("/reviews", { body: reviewBody });
+      setReviewBody("");
+      const { data } = await api.get("/reviews");
+      setReviews(data.reviews || []);
+      showNotice("Review posted.");
+    } catch (error) {
+      showNotice(getErrorMessage(error), "error");
+    }
+  }
+
+  const slide = heroSlides[activeSlide];
+
+  return (
+    <div>
+      <section className="mx-auto max-w-[1500px] px-3 py-4 sm:px-5 sm:py-6">
+        <div className={`relative h-[720px] overflow-hidden rounded-2xl ${slide.tone} shadow-soft sm:h-[760px] lg:h-[680px]`}>
+          <div className="grid h-full grid-rows-[1fr_300px] lg:grid-cols-[0.92fr_1.08fr] lg:grid-rows-1">
+            <div className="relative z-10 flex flex-col justify-center px-6 py-12 sm:px-10 lg:px-16 xl:px-20">
+              <p className="text-xs font-black uppercase tracking-[0.3em] text-clay">{slide.eyebrow}</p>
+              <h1 className="mt-5 max-w-3xl text-5xl font-black leading-[0.95] tracking-tight sm:text-6xl lg:text-7xl">{slide.title}</h1>
+              <p className="mt-6 max-w-xl text-base leading-7 text-neutral-700 dark:text-neutral-300 sm:text-lg">{slide.subtitle}</p>
+              <div className="mt-8"><Link className="btn-primary" to={slide.to}>{slide.cta} <ArrowRight size={18} /></Link></div>
+            </div>
+            <div className="relative h-full overflow-hidden">
+              <img className="absolute inset-0 h-full w-full object-cover" src={slide.image} style={{ objectPosition: slide.imagePosition }} alt="VASTRA fashion collection" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent lg:bg-gradient-to-r lg:from-black/10 lg:to-transparent" />
+            </div>
+          </div>
+          <div className="absolute bottom-5 left-1/2 z-10 flex -translate-x-1/2 items-center gap-3 rounded-full bg-white/90 px-3 py-2 shadow-soft backdrop-blur dark:bg-neutral-950/80">
+            <button className="flex h-8 w-8 items-center justify-center rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => moveSlide(-1)} type="button" aria-label="Previous banner"><ChevronLeft size={16} /></button>
+            {heroSlides.map((item, index) => <button className={`h-2.5 rounded-full transition-all ${index === activeSlide ? "w-8 bg-clay" : "w-2.5 bg-neutral-300 dark:bg-neutral-700"}`} onClick={() => setActiveSlide(index)} type="button" aria-label={`Show banner ${index + 1}`} key={item.title} />)}
+            <button className="flex h-8 w-8 items-center justify-center rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={() => moveSlide(1)} type="button" aria-label="Next banner"><ChevronRight size={16} /></button>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-y border-neutral-200 bg-pearl py-14 dark:border-neutral-800 dark:bg-neutral-950">
+        <div className="mx-auto grid max-w-7xl gap-8 px-4 lg:grid-cols-[0.85fr_1.15fr] lg:items-center">
+          <div><p className="text-sm font-bold uppercase tracking-wide text-clay">Why VASTRA</p><h2 className="mt-2 text-4xl font-black">A refined marketplace for personal style.</h2></div>
+          <div className="grid gap-3 sm:grid-cols-3">{valuePoints.map(([title, body]) => <div className="rounded-lg border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900" key={title}><p className="font-black">{title}</p><p className="mt-2 text-sm leading-6 text-neutral-600 dark:text-neutral-300">{body}</p></div>)}</div>
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-7xl px-4 pt-14">
+        <div className="mb-6 flex items-end justify-between gap-4"><div><p className="text-sm font-bold uppercase tracking-wide text-clay">Sorted by most purchased</p><h2 className="text-3xl font-black">Hot Picks</h2></div><Link className="btn-secondary" to="/shop">Shop all</Link></div>
+        {hotPicksLoading ? <ProductGrid products={[]} loading /> : hotPicks.length ? <ProductGrid products={hotPicks.slice(0, 4)} loading={false} /> : <div className="panel py-12 text-center text-neutral-500">No hot picks yet.</div>}
+      </section>
+
+      <section className="mx-auto max-w-7xl px-4 py-14">
+        <div className="mb-6 flex items-end justify-between gap-4"><div><p className="text-sm font-bold uppercase tracking-wide text-clay">New arrivals</p><h2 className="text-3xl font-black">Fresh from vendors</h2></div><Link className="btn-secondary" to="/shop?sort=newest">View all</Link></div>
+        <ProductGrid products={products.slice(0, 4)} loading={productsLoading} />
+      </section>
+
+      <section className="border-t border-neutral-200 bg-white py-14 dark:border-neutral-800 dark:bg-neutral-950">
+        <div className="mx-auto max-w-7xl space-y-8 px-4">
+          <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-sm font-bold uppercase tracking-wide text-clay">Community notes</p><h2 className="text-3xl font-black">What shoppers say</h2></div><form className="flex min-w-[280px] flex-1 gap-2 md:max-w-xl" onSubmit={submitReview}><input className="flex-1" placeholder="Share a short review..." value={reviewBody} onChange={(event) => setReviewBody(event.target.value)} /><button className="btn-primary" disabled={!reviewBody.trim()} type="submit">Post</button></form></div>
+          <div className="grid gap-4 md:grid-cols-3">{reviews.slice(0, 6).map((review) => <article className="panel" key={review.id}><Quote className="mb-3 text-clay" size={24} /><div className="flex items-center gap-3"><UserAvatar user={review.user} size="md" /><div><p className="font-bold">{review.user.name}</p><p className="text-xs text-neutral-500">{review.pinned ? "Pinned · " : ""}{new Date(review.createdAt).toLocaleDateString()}</p></div></div><p className="mt-4 leading-7 text-neutral-600 dark:text-neutral-300">{review.body}</p></article>)}{!reviews.length && <div className="panel py-10 text-center text-neutral-500 md:col-span-3">No reviews yet.</div>}</div>
+        </div>
+      </section>
+    </div>
+  );
+}

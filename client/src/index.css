@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  .dark {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-pearl text-ink antialiased transition-colors dark:bg-neutral-950 dark:text-neutral-100;
+  }
+
+  input,
+  select,
+  textarea {
+    @apply rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-clay focus:ring-2 focus:ring-clay/20 dark:border-neutral-700 dark:bg-neutral-900;
+  }
+
+  button,
+  a {
+    @apply transition;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-clay disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white dark:text-ink dark:hover:bg-clay dark:hover:text-white;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-semibold text-ink hover:border-clay hover:text-clay disabled:cursor-not-allowed disabled:opacity-60 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100;
+  }
+
+  .panel {
+    @apply rounded-lg border border-neutral-200 bg-white p-5 shadow-soft dark:border-neutral-800 dark:bg-neutral-900;
+  }
+
+  .badge {
+    @apply inline-flex rounded-full px-2.5 py-1 text-xs font-semibold;
+  }
+}

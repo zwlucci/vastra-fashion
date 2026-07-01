@@ -1,0 +1,10 @@
+node_modules/
+.pnpm-store/
+dist/
+build-check/
+server/uploads/
+.env
+.env.local
+*.log
+.DS_Store
+migration/
