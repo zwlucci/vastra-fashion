@@ -276,7 +276,11 @@ async function applyOrderStatusUpdate({ orderId, status, explanation, actor }) {
 
     const updated = await client.query(
       `UPDATE orders
-       SET status = $1, delivered_at = CASE WHEN $1 = 'delivered' THEN COALESCE(delivered_at, NOW()) ELSE delivered_at END
+       SET status = $1::order_status,
+           delivered_at = CASE
+             WHEN $1::order_status = 'delivered'::order_status THEN COALESCE(delivered_at, NOW())
+             ELSE delivered_at
+           END
        WHERE id = $2 RETURNING *`,
       [status, orderId]
     );
