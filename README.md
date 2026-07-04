@@ -23,12 +23,6 @@ This repository uses pnpm workspaces:
 pnpm install
 ```
 
-On this machine, npm on PATH was broken during development, so the bundled Codex pnpm was used:
-
-```powershell
-& 'C:\Users\prana\.cache\codex-runtimes\codex-primary-runtime\dependencies\bin\pnpm.cmd' install
-```
-
 Create or edit `server\.env`:
 
 ```env
