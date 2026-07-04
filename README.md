@@ -64,6 +64,17 @@ Seeded credentials:
 
 Seeded `@example.com` accounts are marked as email-verified so they can be used without OTP.
 
+## Dummy Card Payment
+
+Use these test-only details when selecting **Card** at checkout:
+
+- Cardholder name: `VASTRA Test Customer`
+- Card number: `4242 4242 4242 4242`
+- Expiry date: `12/30`
+- CVV: `123`
+
+This is a dummy payment flow and does not contact a real payment processor. VASTRA stores only the cardholder name, expiry date, and final four digits; the full card number and CVV are never stored.
+
 ## Email Verification
 
 Public registration always creates a normal `user` account with `email_verified = false`.
