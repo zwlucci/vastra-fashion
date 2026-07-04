@@ -30,7 +30,7 @@ DATABASE_URL=postgres://USER:PASSWORD@HOST:PORT/DATABASE
 JWT_SECRET=replace-this-with-a-long-random-secret
 PORT=5000
 CLIENT_URL=http://127.0.0.1:5173
-SERVER_URL=http://127.0.0.1:5000
+SERVER_PUBLIC_URL=http://127.0.0.1:5000
 EMAIL_HOST=smtp.gmail.com
 EMAIL_PORT=465
 EMAIL_SECURE=true
@@ -40,6 +40,7 @@ EMAIL_FROM="VASTRA <my_email@gmail.com>"
 ```
 
 For Gmail, use a Gmail App Password for `EMAIL_PASS`; do not use your normal Gmail password.
+Order emails build product image URLs from `SERVER_PUBLIC_URL`. When emails are opened outside your computer, set it to a publicly reachable HTTPS backend URL (for example, your deployed API or tunnel URL) rather than `localhost` or `127.0.0.1`.
 
 Create or edit `client\.env`:
 
