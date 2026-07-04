@@ -222,7 +222,7 @@ export function Messages() {
                     <div className={`flex ${mine ? "justify-end" : "justify-start"}`} key={message.id}>
                       <div className={`max-w-[78%] rounded-lg p-3 ${mine ? "bg-ink text-white dark:bg-white dark:text-ink" : system ? "bg-clay/10" : "bg-neutral-100 dark:bg-neutral-800"}`}>
                         <p className="text-xs font-bold uppercase tracking-wide opacity-70">{message.senderName}</p>
-                        {message.imageUrl && <ProductMedia className="mt-3 max-h-56 w-full rounded-md object-cover" media={{ url: message.imageUrl, type: message.mediaType }} alt="Message attachment" controls />}
+                        {message.imageUrl && <ProductMedia className="mt-3 h-auto max-h-72 w-auto max-w-full rounded-md bg-white/90 object-contain" media={{ url: message.imageUrl, type: message.mediaType }} alt="Message attachment" controls />}
                         <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{message.body}</p>
                         <p className="mt-2 text-xs opacity-60">{new Date(message.createdAt).toLocaleString()}</p>
                       </div>

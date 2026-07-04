@@ -1,7 +1,8 @@
-import { ChevronDown, LogOut } from "lucide-react";
+import { ChevronDown, Heart, LogOut, Shirt } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
+import { useWishlist } from "../context/WishlistContext.jsx";
 import { roleLabel } from "../utils/format.js";
 import { UserAvatar } from "./UserAvatar.jsx";
 
@@ -9,6 +10,7 @@ export function AccountDropdown() {
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef(null);
   const { user, logout } = useAuth();
+  const { count: wishlistCount } = useWishlist();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -59,6 +61,13 @@ export function AccountDropdown() {
               </div>
               <Link className="block rounded-md px-3 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800" to="/profile" onClick={() => setOpen(false)}>
                 Profile
+              </Link>
+              <Link className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800" to="/wishlist" onClick={() => setOpen(false)}>
+                <Heart size={16} /> Wishlist
+                {wishlistCount > 0 && <span className="ml-auto rounded-full bg-clay px-2 py-0.5 text-xs font-bold text-white">{wishlistCount}</span>}
+              </Link>
+              <Link className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800" to="/wardrobe" onClick={() => setOpen(false)}>
+                <Shirt size={16} /> Wardrobe
               </Link>
               {user.role === "vendor" && (
                 <Link className="block rounded-md px-3 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800" to="/vendor/dashboard" onClick={() => setOpen(false)}>

@@ -46,7 +46,7 @@ export function OrderTable({ orders, onStatusChange, onCancel, onReturn, actingO
                 </td>
                 <td className="px-4 py-3 font-semibold">{money(order.totalAmount)}</td>
                 <td className="px-4 py-3"><span className={`badge ${statusClass(order.status)}`}>{order.status}</span>{order.returnStatus && order.returnStatus !== "none" && <p className="mt-2 text-xs font-semibold capitalize text-clay">Return {order.returnStatus}</p>}</td>
-                <td className="px-4 py-3"><p className="font-semibold capitalize">{order.paymentMethod === "cod" ? "Cash on delivery" : order.paymentMethod}</p><p className="text-xs capitalize text-neutral-500">{order.paymentStatus}</p></td>
+                <td className="px-4 py-3"><p className="font-semibold capitalize">{order.paymentMethod === "cod" ? "Cash on delivery" : order.paymentMethod}</p><p className="text-xs capitalize text-neutral-500">{order.status === "cancelled" ? "Order Cancelled" : order.paymentStatus}</p></td>
                 {showStatusActions && (
                   <td className="px-4 py-3">
                     {!['delivered', 'cancelled'].includes(order.status) && (
