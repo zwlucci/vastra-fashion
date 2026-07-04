@@ -168,6 +168,34 @@ export const contactSchema = z.object({
   message: z.string().min(5)
 });
 
+export const checkoutSchema = z.object({
+  paymentMethod: z.enum(["card", "cod"]),
+  fullName: z.string().trim().min(2).max(100),
+  phoneNumber: z.string().trim().regex(/^\+?[0-9 ()-]{7,20}$/, "Enter a valid phone number"),
+  deliveryAddress: z.string().trim().min(5).max(300),
+  card: z.object({
+    cardholderName: z.string().trim().min(2).max(100),
+    cardNumber: z.string().transform((value) => value.replace(/[ -]/g, "")).pipe(z.string().regex(/^\d{13,19}$/, "Enter a valid card number")),
+    expiryDate: z.string().trim().regex(/^(0[1-9]|1[0-2])\/\d{2}$/, "Use MM/YY"),
+    cvv: z.string().trim().regex(/^\d{3,4}$/, "Enter a valid CVV")
+  }).optional()
+}).superRefine((data, context) => {
+  if (data.paymentMethod !== "card") return;
+  if (!data.card) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Card details are required", path: ["card"] });
+    return;
+  }
+  const [month, year] = data.card.expiryDate.split("/").map(Number);
+  const expiry = new Date(2000 + year, month, 0, 23, 59, 59, 999);
+  if (expiry < new Date()) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Card has expired", path: ["card", "expiryDate"] });
+  }
+});
+
+export const returnOrderSchema = z.object({
+  reason: z.string().trim().max(500).optional().default("")
+});
+
 export const orderStatusSchema = z.object({
   status: z.enum(["pending", "processing", "shipped", "delivered", "cancelled"]),
   explanation: z.string().trim().max(500).optional().default("")

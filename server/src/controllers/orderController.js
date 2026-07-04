@@ -1,8 +1,8 @@
 import { query, withTransaction } from "../config/db.js";
 import { AppError, notFound } from "../utils/errors.js";
-import { sendOrderStatusEmail } from "../utils/mailer.js";
+import { sendOrderReceiptEmail, sendOrderStatusEmail } from "../utils/mailer.js";
 import { emitCartStockInvalidated, emitOrderUpdated, emitProductUpdated } from "../socket.js";
-import { sendOrderStatusMessage } from "./messageController.js";
+import { sendOrderPlacedMessage, sendOrderStatusMessage } from "./messageController.js";
 import { updateStockAlertState } from "./productController.js";
 
 function mapOrderRows(rows) {
@@ -12,10 +12,21 @@ function mapOrderRows(rows) {
       orders.set(row.id, {
         id: row.id,
         userId: row.user_id,
-        customerName: row.customer_name,
+        customerName: row.delivery_name || row.customer_name,
         customerEmail: row.customer_email,
+        phoneNumber: row.delivery_phone || "",
+        deliveryAddress: row.delivery_address || "",
+        paymentMethod: row.payment_method,
+        paymentStatus: row.payment_status,
+        maskedCardNumber: row.card_last4 ? `**** **** **** ${row.card_last4}` : "",
+        cardholderName: row.cardholder_name || "",
+        cardExpiry: row.card_expiry || "",
         totalAmount: Number(row.total_amount),
         status: row.status,
+        deliveredAt: row.delivered_at || (row.status === "delivered" ? row.updated_at : null),
+        returnRequestedAt: row.return_requested_at,
+        returnStatus: row.return_status || "none",
+        returnReason: row.return_reason || "",
         createdAt: row.created_at,
         items: []
       });
@@ -57,6 +68,7 @@ async function getOrdersFor(where, params) {
 }
 
 export async function createOrder(req, res) {
+  const { paymentMethod, fullName, phoneNumber, deliveryAddress, card } = req.body;
   const order = await withTransaction(async (client) => {
     const cart = await client.query(
       `SELECT cart_items.product_id, cart_items.quantity, cart_items.selected_size, cart_items.selected_color,
@@ -95,8 +107,23 @@ export async function createOrder(req, res) {
 
     const total = cart.rows.reduce((sum, item) => sum + item.effectivePrice * item.quantity, 0);
     const created = await client.query(
-      "INSERT INTO orders (user_id, total_amount, status) VALUES ($1, $2, 'pending') RETURNING *",
-      [req.user.id, total]
+      `INSERT INTO orders
+         (user_id, total_amount, status, payment_method, payment_status, delivery_name,
+          delivery_phone, delivery_address, cardholder_name, card_last4, card_expiry)
+       VALUES ($1, $2, 'pending', $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING *`,
+      [
+        req.user.id,
+        total,
+        paymentMethod,
+        paymentMethod === "card" ? "paid" : "pending",
+        fullName,
+        phoneNumber,
+        deliveryAddress,
+        paymentMethod === "card" ? card.cardholderName : null,
+        paymentMethod === "card" ? card.cardNumber.slice(-4) : null,
+        paymentMethod === "card" ? card.expiryDate : null
+      ]
     );
 
     for (const item of cart.rows) {
@@ -129,9 +156,19 @@ export async function createOrder(req, res) {
      WHERE order_items.order_id = $1`,
     [order.order.id]
   );
-  emitOrderUpdated(order.order, vendorResult.rows.map((row) => row.vendor_id));
+  const detailedOrder = (await getOrdersFor("WHERE orders.id = $1", [order.order.id]))[0];
+  emitOrderUpdated(detailedOrder, vendorResult.rows.map((row) => row.vendor_id));
 
-  res.status(201).json({ order: order.order });
+  try {
+    await Promise.all([
+      sendOrderPlacedMessage(detailedOrder),
+      sendOrderReceiptEmail(detailedOrder.customerEmail, detailedOrder)
+    ]);
+  } catch (error) {
+    console.error(`[VASTRA order confirmation] ${error.message}`);
+  }
+
+  res.status(201).json({ order: detailedOrder });
 }
 
 export async function listOrders(req, res) {
@@ -237,7 +274,12 @@ async function applyOrderStatusUpdate({ orderId, status, explanation, actor }) {
     }
     if (order.status === status) return { order, changed: false };
 
-    const updated = await client.query("UPDATE orders SET status = $1 WHERE id = $2 RETURNING *", [status, orderId]);
+    const updated = await client.query(
+      `UPDATE orders
+       SET status = $1, delivered_at = CASE WHEN $1 = 'delivered' THEN COALESCE(delivered_at, NOW()) ELSE delivered_at END
+       WHERE id = $2 RETURNING *`,
+      [status, orderId]
+    );
     return { order: { ...updated.rows[0], customer_email: order.customer_email }, changed: true };
   });
 
@@ -249,6 +291,7 @@ async function applyOrderStatusUpdate({ orderId, status, explanation, actor }) {
   );
 
   if (result.changed) {
+    const detailedOrder = (await getOrdersFor("WHERE orders.id = $1", [orderId]))[0];
     await sendOrderStatusMessage({
       orderId,
       userId: result.order.user_id,
@@ -256,18 +299,123 @@ async function applyOrderStatusUpdate({ orderId, status, explanation, actor }) {
       senderId: actor.id,
       senderRole: actor.role,
       status,
-      explanation
+      explanation,
+      items: detailedOrder.items,
+      totalAmount: detailedOrder.totalAmount
     });
 
     try {
-      await sendOrderStatusEmail(result.order.customer_email, { orderId, status, explanation });
+      await sendOrderStatusEmail(result.order.customer_email, { ...detailedOrder, status, explanation });
     } catch (error) {
       console.error(`[VASTRA order status email] ${error.message}`);
     }
-    emitOrderUpdated(result.order, vendors.rows.map((row) => row.vendor_id));
+    emitOrderUpdated(detailedOrder, vendors.rows.map((row) => row.vendor_id));
+    return detailedOrder;
   }
 
-  return result.order;
+  return (await getOrdersFor("WHERE orders.id = $1", [orderId]))[0];
+}
+
+export async function cancelOrder(req, res) {
+  const result = await withTransaction(async (client) => {
+    const orderResult = await client.query(
+      `SELECT orders.*, users.email AS customer_email
+       FROM orders JOIN users ON users.id = orders.user_id
+       WHERE orders.id = $1 AND orders.user_id = $2 FOR UPDATE OF orders`,
+      [req.params.id, req.user.id]
+    );
+    const order = orderResult.rows[0];
+    if (!order) throw notFound("Order not found");
+    if (!["pending", "processing"].includes(order.status)) {
+      throw new AppError("Only pending or processing orders can be cancelled.", 409);
+    }
+
+    const itemTotals = await client.query(
+      `SELECT product_id, SUM(quantity)::int AS quantity
+       FROM order_items WHERE order_id = $1 AND product_id IS NOT NULL GROUP BY product_id`,
+      [order.id]
+    );
+    const products = [];
+    for (const item of itemTotals.rows) {
+      const updated = await client.query(
+        "UPDATE products SET stock = stock + $1 WHERE id = $2 RETURNING *",
+        [item.quantity, item.product_id]
+      );
+      if (updated.rows[0]) products.push(updated.rows[0]);
+    }
+
+    const updated = await client.query(
+      `UPDATE orders SET status = 'cancelled', payment_status = CASE WHEN payment_status = 'paid' THEN 'refunded' ELSE payment_status END
+       WHERE id = $1 RETURNING *`,
+      [order.id]
+    );
+    return { order: { ...updated.rows[0], customer_email: order.customer_email }, products };
+  });
+
+  await Promise.all(result.products.map(async (product) => {
+    await updateStockAlertState(product);
+    emitProductUpdated(product);
+    await emitCartStockInvalidated(product);
+  }));
+  const vendors = await query(
+    `SELECT DISTINCT products.vendor_id FROM order_items
+     JOIN products ON products.id = order_items.product_id WHERE order_items.order_id = $1`,
+    [req.params.id]
+  );
+  const detailedOrder = (await getOrdersFor("WHERE orders.id = $1", [req.params.id]))[0];
+  emitOrderUpdated(detailedOrder, vendors.rows.map((row) => row.vendor_id));
+  try {
+    await Promise.all([
+      sendOrderStatusMessage({
+        orderId: detailedOrder.id,
+        userId: detailedOrder.userId,
+        senderId: req.user.id,
+        senderRole: "user",
+        status: "cancelled",
+        explanation: "Cancelled by customer.",
+        items: detailedOrder.items,
+        totalAmount: detailedOrder.totalAmount
+      }),
+      sendOrderStatusEmail(result.order.customer_email, { ...detailedOrder, status: "cancelled", explanation: "Cancelled by customer." })
+    ]);
+  } catch (error) {
+    console.error(`[VASTRA order cancellation notice] ${error.message}`);
+  }
+  res.json({ order: detailedOrder, message: "Order cancelled successfully." });
+}
+
+export async function requestOrderReturn(req, res) {
+  const updated = await withTransaction(async (client) => {
+    const orderResult = await client.query(
+      "SELECT * FROM orders WHERE id = $1 AND user_id = $2 FOR UPDATE",
+      [req.params.id, req.user.id]
+    );
+    const order = orderResult.rows[0];
+    if (!order) throw notFound("Order not found");
+    if (order.status !== "delivered") throw new AppError("Only delivered orders can be returned.", 409);
+    if (order.return_status && order.return_status !== "none") {
+      throw new AppError("A return request already exists for this order.", 409);
+    }
+    const deliveredAt = order.delivered_at || order.updated_at;
+    if (!deliveredAt || Date.now() - new Date(deliveredAt).getTime() > 7 * 24 * 60 * 60 * 1000) {
+      throw new AppError("The 7-day return window has closed.", 409);
+    }
+    const result = await client.query(
+      `UPDATE orders SET return_status = 'requested', return_requested_at = NOW(), return_reason = $1
+       WHERE id = $2 RETURNING *`,
+      [req.body.reason || null, order.id]
+    );
+    return result.rows[0];
+  });
+
+  const vendors = await query(
+    `SELECT DISTINCT products.vendor_id FROM order_items
+     JOIN products ON products.id = order_items.product_id WHERE order_items.order_id = $1`,
+    [updated.id]
+  );
+  const detailedOrder = (await getOrdersFor("WHERE orders.id = $1", [updated.id]))[0];
+  emitOrderUpdated(detailedOrder, vendors.rows.map((row) => row.vendor_id));
+  res.json({ order: detailedOrder, message: "Return request submitted successfully." });
 }
 
 export async function updateOrderStatus(req, res) {

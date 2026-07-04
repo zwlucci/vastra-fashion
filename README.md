@@ -30,6 +30,7 @@ DATABASE_URL=postgres://USER:PASSWORD@HOST:PORT/DATABASE
 JWT_SECRET=replace-this-with-a-long-random-secret
 PORT=5000
 CLIENT_URL=http://127.0.0.1:5173
+SERVER_URL=http://127.0.0.1:5000
 EMAIL_HOST=smtp.gmail.com
 EMAIL_PORT=465
 EMAIL_SECURE=true

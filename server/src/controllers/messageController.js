@@ -316,7 +316,50 @@ export async function sendSystemMessageToUser({ userId, subject, body, imageUrl 
   if (result) await emitMessageSideEffects(result.conversation, result.message);
 }
 
-export async function sendOrderStatusMessage({ orderId, userId, vendorId = null, senderId, senderRole, status, explanation = "" }) {
+function orderItemLines(items = []) {
+  return items.map((item) => {
+    const variation = [item.selectedSize && `Size ${item.selectedSize}`, item.selectedColor].filter(Boolean).join(" / ");
+    return `${item.name}${variation ? ` (${variation})` : ""} - Qty ${item.quantity} x ${formatCurrency(item.priceAtPurchase)}`;
+  });
+}
+
+export async function sendOrderPlacedMessage(order) {
+  const result = await withTransaction(async (client) => {
+    const user = await client.query("SELECT id, name, email FROM users WHERE id = $1", [order.userId]);
+    if (!user.rows[0]) return null;
+    let conversation = await client.query(
+      "SELECT * FROM message_conversations WHERE order_id = $1 AND user_id = $2 AND vendor_id IS NULL LIMIT 1",
+      [order.id, order.userId]
+    );
+    if (!conversation.rows[0]) {
+      conversation = await client.query(
+        `INSERT INTO message_conversations
+           (user_id, order_id, participant_name, participant_email, subject)
+         VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+        [order.userId, order.id, user.rows[0].name, user.rows[0].email, `Order #${String(order.id).slice(0, 8)} updates`]
+      );
+    }
+    const body = [
+      `Your VASTRA order #${order.id} has been placed successfully.`,
+      ...orderItemLines(order.items),
+      `Payment: ${order.paymentMethod === "card" ? "Card" : "Cash on Delivery"} (${order.paymentStatus})`,
+      `Grand total: ${formatCurrency(order.totalAmount)}`,
+      "We will let you know as soon as its shipping status changes."
+    ].join("\n\n");
+    const firstItem = order.items?.[0];
+    const message = await createConversationMessage(client, {
+      conversationId: conversation.rows[0].id,
+      senderRole: "system-admin",
+      body,
+      imageUrl: firstItem?.imageUrl || ""
+    });
+    return { conversation: conversation.rows[0], message };
+  });
+  if (result) await emitMessageSideEffects(result.conversation, result.message);
+  return result;
+}
+
+export async function sendOrderStatusMessage({ orderId, userId, vendorId = null, senderId, senderRole, status, explanation = "", items = [], totalAmount = 0 }) {
   const result = await withTransaction(async (client) => {
     const user = await client.query("SELECT id, name, email FROM users WHERE id = $1", [userId]);
     if (!user.rows[0]) return null;
@@ -342,13 +385,17 @@ export async function sendOrderStatusMessage({ orderId, userId, vendorId = null,
     const body = [
       `Your order #${orderId} shipping status has been updated to: ${displayStatus}.`,
       explanation ? `Details: ${explanation}` : "",
+      ...orderItemLines(items),
+      `Order total: ${formatCurrency(totalAmount)}`,
       `Updated: ${timestamp}`
     ].filter(Boolean).join("\n\n");
+    const firstItem = items[0];
     const message = await createConversationMessage(client, {
       conversationId: conversation.rows[0].id,
       senderId,
       senderRole,
-      body
+      body,
+      imageUrl: firstItem?.imageUrl || ""
     });
     return { conversation: conversation.rows[0], message };
   });
