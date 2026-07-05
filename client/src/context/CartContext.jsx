@@ -51,8 +51,8 @@ export function CartProvider({ children }) {
     setItems((current) => current.filter((item) => item.id !== itemId));
   }
 
-  async function checkout() {
-    const { data } = await api.post("/orders");
+  async function checkout(payload) {
+    const { data } = await api.post("/orders", payload);
     setItems([]);
     return data.order;
   }

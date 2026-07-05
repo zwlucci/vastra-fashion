@@ -30,6 +30,7 @@ DATABASE_URL=postgres://USER:PASSWORD@HOST:PORT/DATABASE
 JWT_SECRET=replace-this-with-a-long-random-secret
 PORT=5000
 CLIENT_URL=http://127.0.0.1:5173
+SERVER_PUBLIC_URL=http://127.0.0.1:5000
 EMAIL_HOST=smtp.gmail.com
 EMAIL_PORT=465
 EMAIL_SECURE=true
@@ -39,6 +40,7 @@ EMAIL_FROM="VASTRA <my_email@gmail.com>"
 ```
 
 For Gmail, use a Gmail App Password for `EMAIL_PASS`; do not use your normal Gmail password.
+Order emails build product image URLs from `SERVER_PUBLIC_URL`. When emails are opened outside your computer, set it to a publicly reachable HTTPS backend URL (for example, your deployed API or tunnel URL) rather than `localhost` or `127.0.0.1`.
 
 Create or edit `client\.env`:
 
@@ -62,6 +64,17 @@ Seeded credentials:
 - Vendor: `vendor@example.com` / `Vendor123!`
 
 Seeded `@example.com` accounts are marked as email-verified so they can be used without OTP.
+
+## Dummy Card Payment
+
+Use these test-only details when selecting **Card** at checkout:
+
+- Cardholder name: `VASTRA Test Customer`
+- Card number: `4242 4242 4242 4242`
+- Expiry date: `12/30`
+- CVV: `123`
+
+This is a dummy payment flow and does not contact a real payment processor. VASTRA stores only the cardholder name, expiry date, and final four digits; the full card number and CVV are never stored.
 
 ## Email Verification
 

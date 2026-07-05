@@ -1,9 +1,10 @@
 import { query, withTransaction } from "../config/db.js";
 import { AppError, notFound } from "../utils/errors.js";
-import { sendOrderStatusEmail } from "../utils/mailer.js";
+import { sendOrderReceiptEmail, sendOrderStatusEmail } from "../utils/mailer.js";
 import { emitCartStockInvalidated, emitOrderUpdated, emitProductUpdated } from "../socket.js";
-import { sendOrderStatusMessage } from "./messageController.js";
 import { updateStockAlertState } from "./productController.js";
+import { calculateCouponDiscount, getActiveCoupon } from "../utils/coupons.js";
+import { createOrderNotifications } from "../utils/orderNotifications.js";
 
 function mapOrderRows(rows) {
   const orders = new Map();
@@ -12,10 +13,27 @@ function mapOrderRows(rows) {
       orders.set(row.id, {
         id: row.id,
         userId: row.user_id,
-        customerName: row.customer_name,
+        customerName: row.delivery_name || row.customer_name,
         customerEmail: row.customer_email,
+        phoneNumber: row.delivery_phone || "",
+        deliveryAddress: row.delivery_address || "",
+        paymentMethod: row.payment_method,
+        paymentStatus: row.payment_status,
+        maskedCardNumber: row.card_last4 ? `**** **** **** ${row.card_last4}` : "",
+        cardholderName: row.cardholder_name || "",
+        cardExpiry: row.card_expiry || "",
+        subtotalAmount: Number(row.subtotal_amount ?? row.total_amount),
+        shippingFee: Number(row.shipping_fee || 0),
+        discountAmount: Number(row.discount_amount || 0),
+        couponCode: row.coupon_code || "",
+        couponDiscountType: row.coupon_discount_type || "",
+        couponDiscountValue: row.coupon_discount_value === null || row.coupon_discount_value === undefined ? null : Number(row.coupon_discount_value),
         totalAmount: Number(row.total_amount),
         status: row.status,
+        deliveredAt: row.delivered_at || (row.status === "delivered" ? row.updated_at : null),
+        returnRequestedAt: row.return_requested_at,
+        returnStatus: row.return_status || "none",
+        returnReason: row.return_reason || "",
         createdAt: row.created_at,
         items: []
       });
@@ -57,6 +75,7 @@ async function getOrdersFor(where, params) {
 }
 
 export async function createOrder(req, res) {
+  const { paymentMethod, fullName, phoneNumber, deliveryAddress, card, couponCode, saveShippingInfo, saveCardDetails } = req.body;
   const order = await withTransaction(async (client) => {
     const cart = await client.query(
       `SELECT cart_items.product_id, cart_items.quantity, cart_items.selected_size, cart_items.selected_color,
@@ -93,11 +112,53 @@ export async function createOrder(req, res) {
       }
     }
 
-    const total = cart.rows.reduce((sum, item) => sum + item.effectivePrice * item.quantity, 0);
+    const subtotal = cart.rows.reduce((sum, item) => sum + item.effectivePrice * item.quantity, 0);
+    const coupon = couponCode ? await getActiveCoupon(client, couponCode, { lock: true }) : null;
+    const discountAmount = calculateCouponDiscount(subtotal, coupon);
+    const shippingFee = 0;
+    const total = Math.max(0, subtotal + shippingFee - discountAmount);
     const created = await client.query(
-      "INSERT INTO orders (user_id, total_amount, status) VALUES ($1, $2, 'pending') RETURNING *",
-      [req.user.id, total]
+      `INSERT INTO orders
+         (user_id, total_amount, status, payment_method, payment_status, delivery_name,
+          delivery_phone, delivery_address, cardholder_name, card_last4, card_expiry,
+          subtotal_amount, shipping_fee, discount_amount, coupon_id, coupon_code,
+          coupon_discount_type, coupon_discount_value)
+       VALUES ($1, $2, 'pending', $3, $4, $5, $6, $7, $8, $9, $10,
+               $11, $12, $13, $14, $15, $16, $17)
+       RETURNING *`,
+      [
+        req.user.id,
+        total,
+        paymentMethod,
+        paymentMethod === "card" ? "paid" : "pending",
+        fullName,
+        phoneNumber,
+        deliveryAddress,
+        paymentMethod === "card" ? card.cardholderName : null,
+        paymentMethod === "card" ? card.cardNumber.slice(-4) : null,
+        paymentMethod === "card" ? card.expiryDate : null,
+        subtotal,
+        shippingFee,
+        discountAmount,
+        coupon?.id || null,
+        coupon?.code || null,
+        coupon?.discount_type || null,
+        coupon ? Number(coupon.discount_value) : null
+      ]
     );
+
+    if (saveShippingInfo) {
+      await client.query(
+        "UPDATE users SET name = $1, phone_number = $2, shipping_address = $3 WHERE id = $4",
+        [fullName, phoneNumber, deliveryAddress, req.user.id]
+      );
+    }
+    if (paymentMethod === "card" && saveCardDetails) {
+      await client.query(
+        "UPDATE users SET saved_cardholder_name = $1, saved_card_last4 = $2, saved_card_expiry = $3 WHERE id = $4",
+        [card.cardholderName, card.cardNumber.slice(-4), card.expiryDate, req.user.id]
+      );
+    }
 
     for (const item of cart.rows) {
       await client.query(
@@ -129,9 +190,34 @@ export async function createOrder(req, res) {
      WHERE order_items.order_id = $1`,
     [order.order.id]
   );
-  emitOrderUpdated(order.order, vendorResult.rows.map((row) => row.vendor_id));
+  const detailedOrder = (await getOrdersFor("WHERE orders.id = $1", [order.order.id]))[0];
+  emitOrderUpdated(detailedOrder, vendorResult.rows.map((row) => row.vendor_id));
 
-  res.status(201).json({ order: order.order });
+  try {
+    const adminResult = await query("SELECT id FROM users WHERE role = 'admin'");
+    const vendorIds = vendorResult.rows.map((row) => row.vendor_id).filter(Boolean);
+    await Promise.all([
+      createOrderNotifications([detailedOrder.userId], {
+        orderId: detailedOrder.id,
+        type: "order_placed",
+        title: "Order placed",
+        message: `Order #${detailedOrder.id.slice(0, 8)} was placed successfully.`,
+        metadata: { status: detailedOrder.status, paymentStatus: detailedOrder.paymentStatus }
+      }),
+      createOrderNotifications([...vendorIds, ...adminResult.rows.map((row) => row.id)], {
+        orderId: detailedOrder.id,
+        type: "order_placed",
+        title: "New order",
+        message: `A new order #${detailedOrder.id.slice(0, 8)} has been placed.`,
+        metadata: { status: detailedOrder.status }
+      }),
+      sendOrderReceiptEmail(detailedOrder.customerEmail, detailedOrder)
+    ]);
+  } catch (error) {
+    console.error(`[VASTRA order confirmation] ${error.message}`);
+  }
+
+  res.status(201).json({ order: detailedOrder });
 }
 
 export async function listOrders(req, res) {
@@ -237,7 +323,16 @@ async function applyOrderStatusUpdate({ orderId, status, explanation, actor }) {
     }
     if (order.status === status) return { order, changed: false };
 
-    const updated = await client.query("UPDATE orders SET status = $1 WHERE id = $2 RETURNING *", [status, orderId]);
+    const updated = await client.query(
+      `UPDATE orders
+       SET status = $1::order_status,
+           delivered_at = CASE
+             WHEN $1::order_status = 'delivered'::order_status THEN COALESCE(delivered_at, NOW())
+             ELSE delivered_at
+           END
+       WHERE id = $2 RETURNING *`,
+      [status, orderId]
+    );
     return { order: { ...updated.rows[0], customer_email: order.customer_email }, changed: true };
   });
 
@@ -249,25 +344,137 @@ async function applyOrderStatusUpdate({ orderId, status, explanation, actor }) {
   );
 
   if (result.changed) {
-    await sendOrderStatusMessage({
+    const detailedOrder = (await getOrdersFor("WHERE orders.id = $1", [orderId]))[0];
+    await createOrderNotifications([detailedOrder.userId], {
       orderId,
-      userId: result.order.user_id,
-      vendorId: actor.role === "vendor" ? actor.id : null,
-      senderId: actor.id,
-      senderRole: actor.role,
-      status,
-      explanation
+      type: status === "cancelled" ? "order_cancelled" : "status_updated",
+      title: status === "cancelled" ? "Order cancelled" : "Delivery status updated",
+      message: `Order #${orderId.slice(0, 8)} is now ${status}.`,
+      metadata: { status, explanation }
     });
 
     try {
-      await sendOrderStatusEmail(result.order.customer_email, { orderId, status, explanation });
+      await sendOrderStatusEmail(result.order.customer_email, { ...detailedOrder, status, explanation });
     } catch (error) {
       console.error(`[VASTRA order status email] ${error.message}`);
     }
-    emitOrderUpdated(result.order, vendors.rows.map((row) => row.vendor_id));
+    emitOrderUpdated(detailedOrder, vendors.rows.map((row) => row.vendor_id));
+    return detailedOrder;
   }
 
-  return result.order;
+  return (await getOrdersFor("WHERE orders.id = $1", [orderId]))[0];
+}
+
+export async function cancelOrder(req, res) {
+  const result = await withTransaction(async (client) => {
+    const orderResult = await client.query(
+      `SELECT orders.*, users.email AS customer_email
+       FROM orders JOIN users ON users.id = orders.user_id
+       WHERE orders.id = $1 AND orders.user_id = $2 FOR UPDATE OF orders`,
+      [req.params.id, req.user.id]
+    );
+    const order = orderResult.rows[0];
+    if (!order) throw notFound("Order not found");
+    if (!["pending", "processing"].includes(order.status)) {
+      throw new AppError("Only pending or processing orders can be cancelled.", 409);
+    }
+
+    const itemTotals = await client.query(
+      `SELECT product_id, SUM(quantity)::int AS quantity
+       FROM order_items WHERE order_id = $1 AND product_id IS NOT NULL GROUP BY product_id`,
+      [order.id]
+    );
+    const products = [];
+    for (const item of itemTotals.rows) {
+      const updated = await client.query(
+        "UPDATE products SET stock = stock + $1 WHERE id = $2 RETURNING *",
+        [item.quantity, item.product_id]
+      );
+      if (updated.rows[0]) products.push(updated.rows[0]);
+    }
+
+    const updated = await client.query(
+      `UPDATE orders SET status = 'cancelled', payment_status = CASE WHEN payment_status = 'paid' THEN 'refunded' ELSE payment_status END
+       WHERE id = $1 RETURNING *`,
+      [order.id]
+    );
+    return { order: { ...updated.rows[0], customer_email: order.customer_email }, products };
+  });
+
+  await Promise.all(result.products.map(async (product) => {
+    await updateStockAlertState(product);
+    emitProductUpdated(product);
+    await emitCartStockInvalidated(product);
+  }));
+  const vendors = await query(
+    `SELECT DISTINCT products.vendor_id FROM order_items
+     JOIN products ON products.id = order_items.product_id WHERE order_items.order_id = $1`,
+    [req.params.id]
+  );
+  const detailedOrder = (await getOrdersFor("WHERE orders.id = $1", [req.params.id]))[0];
+  emitOrderUpdated(detailedOrder, vendors.rows.map((row) => row.vendor_id));
+  try {
+    const admins = await query("SELECT id FROM users WHERE role = 'admin'");
+    await Promise.all([
+      createOrderNotifications([detailedOrder.userId, ...vendors.rows.map((row) => row.vendor_id), ...admins.rows.map((row) => row.id)], {
+        orderId: detailedOrder.id,
+        type: "order_cancelled",
+        title: "Order cancelled",
+        message: `Order #${detailedOrder.id.slice(0, 8)} was cancelled by the customer.`,
+        metadata: { status: "cancelled", paymentStatus: detailedOrder.paymentStatus }
+      }),
+      sendOrderStatusEmail(result.order.customer_email, { ...detailedOrder, status: "cancelled", explanation: "Cancelled by customer." })
+    ]);
+  } catch (error) {
+    console.error(`[VASTRA order cancellation notice] ${error.message}`);
+  }
+  res.json({ order: detailedOrder, message: "Order cancelled successfully." });
+}
+
+export async function requestOrderReturn(req, res) {
+  const updated = await withTransaction(async (client) => {
+    const orderResult = await client.query(
+      "SELECT * FROM orders WHERE id = $1 AND user_id = $2 FOR UPDATE",
+      [req.params.id, req.user.id]
+    );
+    const order = orderResult.rows[0];
+    if (!order) throw notFound("Order not found");
+    if (order.status !== "delivered") throw new AppError("Only delivered orders can be returned.", 409);
+    if (order.return_status && order.return_status !== "none") {
+      throw new AppError("A return request already exists for this order.", 409);
+    }
+    const deliveredAt = order.delivered_at || order.updated_at;
+    if (!deliveredAt || Date.now() - new Date(deliveredAt).getTime() > 7 * 24 * 60 * 60 * 1000) {
+      throw new AppError("The 7-day return window has closed.", 409);
+    }
+    const result = await client.query(
+      `UPDATE orders SET return_status = 'requested', return_requested_at = NOW(), return_reason = $1
+       WHERE id = $2 RETURNING *`,
+      [req.body.reason || null, order.id]
+    );
+    return result.rows[0];
+  });
+
+  const vendors = await query(
+    `SELECT DISTINCT products.vendor_id FROM order_items
+     JOIN products ON products.id = order_items.product_id WHERE order_items.order_id = $1`,
+    [updated.id]
+  );
+  const detailedOrder = (await getOrdersFor("WHERE orders.id = $1", [updated.id]))[0];
+  emitOrderUpdated(detailedOrder, vendors.rows.map((row) => row.vendor_id));
+  try {
+    const admins = await query("SELECT id FROM users WHERE role = 'admin'");
+    await createOrderNotifications([detailedOrder.userId, ...vendors.rows.map((row) => row.vendor_id), ...admins.rows.map((row) => row.id)], {
+      orderId: detailedOrder.id,
+      type: "return_requested",
+      title: "Return requested",
+      message: `A return was requested for order #${detailedOrder.id.slice(0, 8)}.`,
+      metadata: { returnStatus: detailedOrder.returnStatus }
+    });
+  } catch (error) {
+    console.error(`[VASTRA return notification] ${error.message}`);
+  }
+  res.json({ order: detailedOrder, message: "Return request submitted successfully." });
 }
 
 export async function updateOrderStatus(req, res) {

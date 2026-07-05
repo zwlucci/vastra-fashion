@@ -1,16 +1,19 @@
-import React from "react";
+import React, { useState } from "react";
 import { ProductImage } from "./ProductImage.jsx";
+import { StatusConfirmModal } from "./StatusConfirmModal.jsx";
 import { money, statusClass } from "../utils/format.js";
 
 const statusOptions = ["pending", "processing", "shipped", "delivered", "cancelled"];
 
 export function VendorOrderTable({ orders, onStatusChange }) {
+  const [statusChange, setStatusChange] = useState(null);
   if (!orders.length) {
     return <div className="panel py-10 text-center text-neutral-500">No delivery orders for your products yet.</div>;
   }
   const showStatusActions = orders.some((order) => !["delivered", "cancelled"].includes(order.status));
 
   return (
+    <>
     <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[880px] text-left text-sm">
@@ -49,10 +52,10 @@ export function VendorOrderTable({ orders, onStatusChange }) {
                   </div>
                 </td>
                 <td className="px-4 py-3 font-semibold">{money(order.totalAmount)}</td>
-                <td className="px-4 py-3"><span className={`badge ${statusClass(order.status)}`}>{order.status}</span></td>
+                <td className="px-4 py-3"><span className={`badge ${statusClass(order.status)}`}>{order.status}</span>{order.returnStatus && order.returnStatus !== "none" && <p className="mt-2 text-xs font-semibold capitalize text-clay">Return {order.returnStatus}</p>}</td>
                 {showStatusActions && <td className="px-4 py-3">
                   {!['delivered', 'cancelled'].includes(order.status) && (
-                    <select aria-label={`Change status for order ${order.id}`} className="min-w-36" value={order.status} onChange={(event) => onStatusChange(order.id, event.target.value)}>
+                    <select aria-label={`Change status for order ${order.id}`} className="min-w-36" value={order.status} onChange={(event) => event.target.value !== order.status && setStatusChange({ orderId: order.id, from: order.status, to: event.target.value })}>
                       {statusOptions.map((status) => (
                         <option value={status} key={status}>{status}</option>
                       ))}
@@ -66,5 +69,7 @@ export function VendorOrderTable({ orders, onStatusChange }) {
         </table>
       </div>
     </div>
+    <StatusConfirmModal change={statusChange} onCancel={() => setStatusChange(null)} onConfirm={({ orderId, to }) => onStatusChange(orderId, to)} />
+    </>
   );
 }

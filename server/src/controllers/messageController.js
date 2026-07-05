@@ -3,6 +3,7 @@ import { formatCurrency } from "../../../shared/currency.mjs";
 import { AppError, notFound } from "../utils/errors.js";
 import {
   emitConversationEvent,
+  emitConversationDeleted,
   emitMessagesRead,
   emitNewMessage,
   emitUnreadToAdmins,
@@ -106,6 +107,7 @@ async function getAuthorizedConversation(conversationId, user) {
             vendor_users.name AS vendor_name, vendor_users.email AS vendor_email, vendor_users.role AS vendor_role,
             vendor_users.brand_name AS vendor_brand_name, vendor_users.profile_image_url AS vendor_profile_image_url,
             latest_message.created_at AS last_message_at,
+            conversation_deletions.hidden_before,
             (conversation_archives.user_id IS NOT NULL OR
               GREATEST(COALESCE(latest_message.created_at, message_conversations.created_at), message_conversations.updated_at) < NOW() - INTERVAL '3 days') AS archived,
             conversation_archives.archived_at
@@ -114,9 +116,12 @@ async function getAuthorizedConversation(conversationId, user) {
      LEFT JOIN users vendor_users ON vendor_users.id = message_conversations.vendor_id
      LEFT JOIN conversation_archives ON conversation_archives.conversation_id = message_conversations.id
        AND conversation_archives.user_id = $2
+     LEFT JOIN conversation_deletions ON conversation_deletions.conversation_id = message_conversations.id
+       AND conversation_deletions.user_id = $2
      LEFT JOIN LATERAL (
        SELECT created_at FROM conversation_messages
        WHERE conversation_messages.conversation_id = message_conversations.id
+         AND conversation_messages.created_at > COALESCE(conversation_deletions.hidden_before, '-infinity'::timestamptz)
        ORDER BY created_at DESC LIMIT 1
      ) latest_message ON true
      WHERE ${where}`,
@@ -131,14 +136,15 @@ async function getConversationForEmit(conversationId) {
   return rows[0];
 }
 
-async function getConversationMessages(conversationId) {
+async function getConversationMessages(conversationId, hiddenBefore = null) {
   const { rows } = await query(
     `SELECT conversation_messages.*, users.name AS sender_name, users.profile_image_url AS sender_profile_image_url
      FROM conversation_messages
      LEFT JOIN users ON users.id = conversation_messages.sender_id
      WHERE conversation_messages.conversation_id = $1
+       AND ($2::timestamptz IS NULL OR conversation_messages.created_at > $2::timestamptz)
      ORDER BY conversation_messages.created_at ASC`,
-    [conversationId]
+    [conversationId, hiddenBefore]
   );
   return rows.map(mapMessage);
 }
@@ -157,8 +163,11 @@ async function getConversationUnreadCount(conversation, user) {
     unreadWhere = "read_by_user = false AND sender_role <> 'user'";
   }
   const { rows } = await query(
-    `SELECT COUNT(*)::int AS count FROM conversation_messages WHERE conversation_id = $1 AND ${unreadWhere}`,
-    [conversation.id]
+    `SELECT COUNT(*)::int AS count FROM conversation_messages
+     WHERE conversation_id = $1
+       AND created_at > COALESCE($2::timestamptz, '-infinity'::timestamptz)
+       AND ${unreadWhere}`,
+    [conversation.id, conversation.hidden_before || null]
   );
   return rows[0].count;
 }
@@ -316,47 +325,6 @@ export async function sendSystemMessageToUser({ userId, subject, body, imageUrl 
   if (result) await emitMessageSideEffects(result.conversation, result.message);
 }
 
-export async function sendOrderStatusMessage({ orderId, userId, vendorId = null, senderId, senderRole, status, explanation = "" }) {
-  const result = await withTransaction(async (client) => {
-    const user = await client.query("SELECT id, name, email FROM users WHERE id = $1", [userId]);
-    if (!user.rows[0]) return null;
-
-    let conversation = await client.query(
-      `SELECT * FROM message_conversations
-       WHERE order_id = $1 AND user_id = $2 AND vendor_id IS NOT DISTINCT FROM $3
-       LIMIT 1`,
-      [orderId, userId, vendorId]
-    );
-    if (!conversation.rows[0]) {
-      conversation = await client.query(
-        `INSERT INTO message_conversations
-           (user_id, vendor_id, order_id, participant_name, participant_email, subject)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         RETURNING *`,
-        [userId, vendorId, orderId, user.rows[0].name, user.rows[0].email, `Order #${String(orderId).slice(0, 8)} updates`]
-      );
-    }
-
-    const displayStatus = status.charAt(0).toUpperCase() + status.slice(1);
-    const timestamp = new Date().toISOString();
-    const body = [
-      `Your order #${orderId} shipping status has been updated to: ${displayStatus}.`,
-      explanation ? `Details: ${explanation}` : "",
-      `Updated: ${timestamp}`
-    ].filter(Boolean).join("\n\n");
-    const message = await createConversationMessage(client, {
-      conversationId: conversation.rows[0].id,
-      senderId,
-      senderRole,
-      body
-    });
-    return { conversation: conversation.rows[0], message };
-  });
-
-  if (result) await emitMessageSideEffects(result.conversation, result.message);
-  return result;
-}
-
 export async function listConversations(req, res) {
   const params = [req.user.id];
   let where = "WHERE message_conversations.vendor_id IS NULL";
@@ -383,18 +351,24 @@ export async function listConversations(req, res) {
      LEFT JOIN users vendor_users ON vendor_users.id = message_conversations.vendor_id
      LEFT JOIN conversation_archives ON conversation_archives.conversation_id = message_conversations.id
        AND conversation_archives.user_id = $1
+     LEFT JOIN conversation_deletions ON conversation_deletions.conversation_id = message_conversations.id
+       AND conversation_deletions.user_id = $1
      LEFT JOIN LATERAL (
        SELECT body, created_at
        FROM conversation_messages
        WHERE conversation_messages.conversation_id = message_conversations.id
+         AND conversation_messages.created_at > COALESCE(conversation_deletions.hidden_before, '-infinity'::timestamptz)
        ORDER BY created_at DESC
        LIMIT 1
      ) last_message ON true
      LEFT JOIN conversation_messages ON conversation_messages.conversation_id = message_conversations.id
+       AND conversation_messages.created_at > COALESCE(conversation_deletions.hidden_before, '-infinity'::timestamptz)
      ${where}
+       AND (conversation_deletions.hidden_before IS NULL OR last_message.created_at IS NOT NULL)
      GROUP BY message_conversations.id, users.name, users.email, users.role, users.profile_image_url,
               vendor_users.name, vendor_users.email, vendor_users.role, vendor_users.brand_name, vendor_users.profile_image_url,
-              last_message.body, last_message.created_at, conversation_archives.user_id, conversation_archives.archived_at
+              last_message.body, last_message.created_at, conversation_archives.user_id, conversation_archives.archived_at,
+              conversation_deletions.hidden_before
      ORDER BY COALESCE(last_message.created_at, message_conversations.updated_at) DESC`,
     params
   );
@@ -402,11 +376,10 @@ export async function listConversations(req, res) {
 }
 
 export async function getUnreadMessageCount(req, res) {
-  const params = [];
+  const params = [req.user.id];
   let where = "AND message_conversations.vendor_id IS NULL";
   let unreadWhere = "conversation_messages.read_by_admin = false AND conversation_messages.sender_role <> 'admin'";
   if (req.user.role !== "admin") {
-    params.push(req.user.id);
     where = "AND (message_conversations.user_id = $1 OR message_conversations.vendor_id = $1)";
     unreadWhere = unreadWhereForUser(req.user);
   }
@@ -415,7 +388,10 @@ export async function getUnreadMessageCount(req, res) {
     `SELECT COUNT(conversation_messages.id)::int AS count
      FROM conversation_messages
      JOIN message_conversations ON message_conversations.id = conversation_messages.conversation_id
-     WHERE ${unreadWhere} ${where}`,
+     LEFT JOIN conversation_deletions ON conversation_deletions.conversation_id = message_conversations.id
+       AND conversation_deletions.user_id = $1
+     WHERE conversation_messages.created_at > COALESCE(conversation_deletions.hidden_before, '-infinity'::timestamptz)
+       AND ${unreadWhere} ${where}`,
     params
   );
   res.json({ count: rows[0].count });
@@ -423,12 +399,13 @@ export async function getUnreadMessageCount(req, res) {
 
 export async function markConversationRead(req, res) {
   const conversation = await getAuthorizedConversation(req.params.id, req.user);
+  const params = [conversation.id, conversation.hidden_before || null];
   if (req.user.role === "admin") {
-    await query("UPDATE conversation_messages SET read_by_admin = true WHERE conversation_id = $1 AND sender_role <> 'admin'", [conversation.id]);
+    await query("UPDATE conversation_messages SET read_by_admin = true WHERE conversation_id = $1 AND created_at > COALESCE($2::timestamptz, '-infinity'::timestamptz) AND sender_role <> 'admin'", params);
   } else if (conversation.vendor_id === req.user.id) {
-    await query("UPDATE conversation_messages SET read_by_vendor = true WHERE conversation_id = $1 AND sender_role <> 'vendor'", [conversation.id]);
+    await query("UPDATE conversation_messages SET read_by_vendor = true WHERE conversation_id = $1 AND created_at > COALESCE($2::timestamptz, '-infinity'::timestamptz) AND sender_role <> 'vendor'", params);
   } else {
-    await query("UPDATE conversation_messages SET read_by_user = true WHERE conversation_id = $1 AND sender_role <> 'user'", [conversation.id]);
+    await query("UPDATE conversation_messages SET read_by_user = true WHERE conversation_id = $1 AND created_at > COALESCE($2::timestamptz, '-infinity'::timestamptz) AND sender_role <> 'user'", params);
   }
 
   emitMessagesRead(conversation, req.user);
@@ -456,8 +433,25 @@ export async function setConversationArchived(req, res) {
 
 export async function getConversation(req, res) {
   const conversation = await getAuthorizedConversation(req.params.id, req.user);
-  const messages = await getConversationMessages(conversation.id);
+  const messages = await getConversationMessages(conversation.id, conversation.hidden_before || null);
   res.json({ conversation: mapConversation(conversation, req.user), messages });
+}
+
+export async function deleteConversationForUser(req, res) {
+  const conversation = await getAuthorizedConversation(req.params.id, req.user);
+  await withTransaction(async (client) => {
+    await client.query(
+      `INSERT INTO conversation_deletions (conversation_id, user_id, hidden_before)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (conversation_id, user_id)
+       DO UPDATE SET hidden_before = NOW()`,
+      [conversation.id, req.user.id]
+    );
+    await client.query("DELETE FROM conversation_archives WHERE conversation_id = $1 AND user_id = $2", [conversation.id, req.user.id]);
+  });
+  emitConversationDeleted(req.user.id, conversation.id);
+  await emitUnreadToUser(req.user);
+  res.status(204).end();
 }
 
 export async function replyToConversation(req, res) {

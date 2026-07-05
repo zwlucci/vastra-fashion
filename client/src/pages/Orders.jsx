@@ -12,6 +12,8 @@ export function Orders() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [actingOrderId, setActingOrderId] = useState("");
 
   async function loadOrders() {
     const { data } = await api.get("/orders");
@@ -39,6 +41,21 @@ export function Orders() {
     }
   }
 
+  async function runOrderAction(orderId, action) {
+    setError("");
+    setSuccess("");
+    setActingOrderId(orderId);
+    try {
+      const { data } = await api.patch(`/orders/${orderId}/${action}`, action === "return" ? { reason: "" } : {});
+      setOrders((current) => current.map((order) => order.id === orderId ? data.order : order));
+      setSuccess(data.message);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setActingOrderId("");
+    }
+  }
+
   return (
     <section className="mx-auto max-w-7xl space-y-6 px-4 py-10">
       <Link className="btn-secondary inline-flex" to="/profile"><ArrowLeft size={17} /> Back to Profile</Link>
@@ -47,7 +64,8 @@ export function Orders() {
         <h1 className="text-4xl font-black">Order history</h1>
       </div>
       {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-200">{error}</p>}
-      {loading ? <p>Loading orders...</p> : <OrderTable orders={orders} onStatusChange={user.role === "admin" ? updateStatus : undefined} />}
+      {success && <p className="rounded-md bg-clay/10 p-3 text-sm font-semibold text-clay">{success}</p>}
+      {loading ? <p>Loading orders...</p> : <OrderTable orders={orders} onStatusChange={user.role === "admin" ? updateStatus : undefined} onCancel={user.role === "user" ? (id) => runOrderAction(id, "cancel") : undefined} onReturn={user.role === "user" ? (id) => runOrderAction(id, "return") : undefined} actingOrderId={actingOrderId} />}
     </section>
   );
 }

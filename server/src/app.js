@@ -12,6 +12,7 @@ import { cartRoutes } from "./routes/cartRoutes.js";
 import { contactRoutes } from "./routes/contactRoutes.js";
 import { messageRoutes } from "./routes/messageRoutes.js";
 import { orderRoutes } from "./routes/orderRoutes.js";
+import { orderNotificationRoutes } from "./routes/orderNotificationRoutes.js";
 import { productRoutes, vendorRoutes } from "./routes/productRoutes.js";
 import { reviewRoutes } from "./routes/reviewRoutes.js";
 import { vendorPublicRoutes } from "./routes/vendorPublicRoutes.js";
@@ -104,6 +105,7 @@ app.use("/api/product-reviews", productReviewRoutes);
 app.use("/api/vendor-reviews", vendorReviewRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/orders", orderRoutes);
+app.use("/api/order-notifications", orderNotificationRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/contact", contactRoutes);
 

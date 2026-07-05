@@ -1,11 +1,10 @@
-import { Heart, Menu, MessageSquare, Shirt, ShoppingBag, X } from "lucide-react";
+import { Menu, MessageSquare, ShoppingBag, X } from "lucide-react";
 import React, { useState } from "react";
 import { Link, NavLink } from "react-router-dom";
 import { useCart } from "../context/CartContext.jsx";
 import { useMessages } from "../context/MessageContext.jsx";
-import { useWishlist } from "../context/WishlistContext.jsx";
-import { useAuth } from "../context/AuthContext.jsx";
 import { AccountDropdown } from "./AccountDropdown.jsx";
+import { OrderNotificationMenu } from "./OrderNotificationMenu.jsx";
 import { ThemeToggle } from "./ThemeToggle.jsx";
 
 const navItems = [
@@ -17,9 +16,7 @@ const navItems = [
 export function Navbar() {
   const [open, setOpen] = useState(false);
   const { count } = useCart();
-  const { count: wishlistCount } = useWishlist();
   const { unreadCount } = useMessages();
-  const { isAuthenticated } = useAuth();
 
   const navClass = ({ isActive }) =>
     `rounded-md px-3 py-2 text-sm font-semibold ${isActive ? "text-clay" : "text-neutral-700 hover:text-clay dark:text-neutral-200"}`;
@@ -36,11 +33,7 @@ export function Navbar() {
             <MessageSquare size={18} />
             {unreadCount > 0 && <span className="absolute -right-1 -top-1 rounded-full bg-clay px-1.5 text-xs font-bold text-white">{unreadCount}</span>}
           </Link>
-          {isAuthenticated && <Link className="btn-secondary relative h-10 w-10 px-0" to="/wardrobe" title="Wardrobe"><Shirt size={18} /></Link>}
-          <Link className="btn-secondary relative h-10 w-10 px-0" to="/wishlist" title="Wishlist">
-            <Heart size={18} />
-            {wishlistCount > 0 && <span className="absolute -right-1 -top-1 rounded-full bg-clay px-1.5 text-xs font-bold text-white">{wishlistCount}</span>}
-          </Link>
+          <OrderNotificationMenu />
           <Link className="btn-secondary relative h-10 w-10 px-0" to="/cart" title="Cart">
             <ShoppingBag size={18} />
             {count > 0 && <span className="absolute -right-1 -top-1 rounded-full bg-clay px-1.5 text-xs font-bold text-white">{count}</span>}

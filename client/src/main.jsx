@@ -17,15 +17,15 @@ ReactDOM.createRoot(document.getElementById("root")).render(
       <BrowserRouter>
         <ThemeProvider>
           <AuthProvider>
-            <NotificationProvider>
-              <MessageProvider>
+            <MessageProvider>
+              <NotificationProvider>
                 <CartProvider>
                   <WishlistProvider>
                     <App />
                   </WishlistProvider>
                 </CartProvider>
-              </MessageProvider>
-            </NotificationProvider>
+              </NotificationProvider>
+            </MessageProvider>
           </AuthProvider>
         </ThemeProvider>
       </BrowserRouter>
