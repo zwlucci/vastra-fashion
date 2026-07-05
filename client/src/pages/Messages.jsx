@@ -1,4 +1,4 @@
-import { Archive, ArchiveRestore, Send } from "lucide-react";
+import { Archive, ArchiveRestore, Send, Trash2, X } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, getErrorMessage } from "../api/client.js";
@@ -20,6 +20,8 @@ export function Messages() {
   const [filter, setFilter] = useState("active");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const messageEndRef = useRef(null);
 
   async function loadConversations() {
@@ -97,14 +99,26 @@ export function Messages() {
       markConversationRead(conversationId).catch(() => {});
     }
 
+    function handleConversationDeleted({ conversationId }) {
+      setConversations((current) => current.filter((conversation) => conversation.id !== conversationId));
+      if (conversationId === selectedId) {
+        setSelected(null);
+        setMessages([]);
+        setSelectedId("");
+        setSearchParams({});
+      }
+    }
+
     socket.on("conversation:updated", handleConversationUpdated);
     socket.on("messages:read", handleMessagesRead);
     socket.on("message:new", handleNewMessage);
+    socket.on("conversation:deleted", handleConversationDeleted);
 
     return () => {
       socket.off("conversation:updated", handleConversationUpdated);
       socket.off("messages:read", handleMessagesRead);
       socket.off("message:new", handleNewMessage);
+      socket.off("conversation:deleted", handleConversationDeleted);
     };
   }, [socket, selectedId]);
 
@@ -136,6 +150,26 @@ export function Messages() {
       setSearchParams({});
     } catch (err) {
       setError(getErrorMessage(err));
+    }
+  }
+
+  async function deleteConversation() {
+    if (!selectedId) return;
+    setDeleting(true);
+    setError("");
+    try {
+      await api.delete(`/messages/conversations/${selectedId}`);
+      setConversations((current) => current.filter((conversation) => conversation.id !== selectedId));
+      setSelected(null);
+      setMessages([]);
+      setSelectedId("");
+      setSearchParams({});
+      setDeleteConfirmOpen(false);
+      await refreshUnreadCount();
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -203,7 +237,7 @@ export function Messages() {
           {selected ? (
             <>
               <div className="border-b border-neutral-200 p-4 dark:border-neutral-800">
-                <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-bold uppercase tracking-wide text-clay">Conversation</p><h2 className="mt-1 text-xl font-black">{selected.subject}</h2></div><button className="btn-secondary h-9 px-3" onClick={toggleArchive} type="button">{selected.archived ? <ArchiveRestore size={15} /> : <Archive size={15} />} {selected.archived ? "Restore" : "Archive"}</button></div>
+                <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-bold uppercase tracking-wide text-clay">Conversation</p><h2 className="mt-1 text-xl font-black">{selected.subject}</h2></div><div className="flex gap-2"><button className="btn-secondary h-9 px-3" onClick={toggleArchive} type="button">{selected.archived ? <ArchiveRestore size={15} /> : <Archive size={15} />} {selected.archived ? "Restore" : "Archive"}</button><button className="btn-secondary h-9 px-3 text-red-600" onClick={() => setDeleteConfirmOpen(true)} type="button"><Trash2 size={15} /> Delete</button></div></div>
                 <div className="mt-3 flex items-center gap-3">
                   <UserAvatar user={selected.otherParticipant} size="md" />
                   <div className="min-w-0">
@@ -243,6 +277,14 @@ export function Messages() {
           )}
         </div>
       </div>
+      {deleteConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onMouseDown={() => setDeleteConfirmOpen(false)} role="presentation">
+          <div className="panel w-full max-w-md p-5" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="delete-conversation-title">
+            <div className="flex items-start justify-between gap-4"><div><h2 className="text-xl font-black" id="delete-conversation-title">Delete this chat?</h2><p className="mt-2 text-sm leading-6 text-neutral-500">It will disappear only for you. The other participant keeps their copy, and any future message will start the chat again without restoring deleted history.</p></div><button className="btn-secondary h-9 w-9 shrink-0 px-0" onClick={() => setDeleteConfirmOpen(false)} type="button" aria-label="Close"><X size={16} /></button></div>
+            <div className="mt-5 flex justify-end gap-2"><button className="btn-secondary" onClick={() => setDeleteConfirmOpen(false)} type="button">Keep chat</button><button className="btn-primary bg-red-600 hover:bg-red-700" disabled={deleting} onClick={deleteConversation} type="button"><Trash2 size={16} /> {deleting ? "Deleting..." : "Delete for me"}</button></div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

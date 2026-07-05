@@ -85,7 +85,7 @@ function orderItemsHtml(items = [], imageSources = []) {
     const image = imageSources[index] || "";
     const variation = [item.selectedSize && `Size ${item.selectedSize}`, item.selectedColor && `Color ${item.selectedColor}`].filter(Boolean).join(" / ");
     return `<div style="display:flex;gap:14px;padding:14px 0;border-bottom:1px solid #e5e5e5">
-      ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(item.name)}" width="72" height="88" style="display:block;object-fit:contain;background:#f5f5f5;border-radius:8px" />` : ""}
+      ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(item.name)}" width="72" height="88" style="display:block;object-fit:contain;background:#f5f5f5;border-radius:8px" />` : `<div style="display:flex;width:72px;height:88px;flex:0 0 72px;align-items:center;justify-content:center;background:#f5f5f5;border-radius:8px;color:#a3a3a3;font-size:11px;text-align:center">Image unavailable</div>`}
       <div><strong>${escapeHtml(item.name)}</strong><div style="color:#737373;font-size:13px;margin-top:4px">${escapeHtml(variation || "Standard variation")}</div>
       <div style="margin-top:6px">Qty ${item.quantity} x ${escapeHtml(formatCurrency(item.priceAtPurchase))}</div></div>
     </div>`;
@@ -93,13 +93,21 @@ function orderItemsHtml(items = [], imageSources = []) {
 }
 
 function emailShell({ title, badge, body, order, imageSources = [] }) {
+  const subtotal = Number(order.subtotalAmount ?? order.totalAmount);
+  const discount = Number(order.discountAmount || 0);
+  const shipping = Number(order.shippingFee || 0);
+  const summaryRows = [
+    `<div style="margin-bottom:6px"><span>Subtotal</span><span style="float:right">${escapeHtml(formatCurrency(subtotal))}</span></div>`,
+    discount > 0 ? `<div style="margin-bottom:6px;color:#8a4f33"><span>Discount${order.couponCode ? ` (${escapeHtml(order.couponCode)})` : ""}</span><span style="float:right">-${escapeHtml(formatCurrency(discount))}</span></div>` : "",
+    `<div style="margin-bottom:8px"><span>Shipping</span><span style="float:right">${escapeHtml(formatCurrency(shipping))}</span></div>`
+  ].filter(Boolean).join("");
   return `<!doctype html><html><body style="margin:0;background:#f5f1eb;font-family:Arial,sans-serif;color:#171717">
     <div style="max-width:640px;margin:24px auto;background:#fff;border-radius:14px;overflow:hidden;border:1px solid #e5e5e5">
       <div style="background:#171717;color:#fff;padding:22px 28px"><div style="font-size:25px;font-weight:800;letter-spacing:3px">VASTRA</div></div>
       <div style="padding:28px"><span style="display:inline-block;background:#f1e3da;color:#8a4f33;border-radius:999px;padding:6px 10px;font-size:12px;font-weight:700;text-transform:uppercase">${escapeHtml(badge)}</span>
       <h1 style="font-size:25px;margin:16px 0 8px">${escapeHtml(title)}</h1>${body}
       <div style="margin-top:22px"><h2 style="font-size:17px">Order #${escapeHtml(String(order.id).slice(0, 8))}</h2>${orderItemsHtml(order.items, imageSources)}</div>
-      <div style="margin-top:20px;padding:16px;background:#faf7f4;border-radius:10px"><strong>Grand total</strong><span style="float:right;font-weight:800">${escapeHtml(formatCurrency(order.totalAmount))}</span></div>
+      <div style="margin-top:20px;padding:16px;background:#faf7f4;border-radius:10px">${summaryRows}<div style="padding-top:8px;border-top:1px solid #e5e5e5"><strong>Grand total</strong><span style="float:right;font-weight:800">${escapeHtml(formatCurrency(order.totalAmount))}</span></div></div>
       <p style="margin-top:24px;color:#737373;font-size:13px">Thank you for choosing VASTRA.</p></div>
     </div></body></html>`;
 }

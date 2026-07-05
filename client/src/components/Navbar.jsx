@@ -4,6 +4,7 @@ import { Link, NavLink } from "react-router-dom";
 import { useCart } from "../context/CartContext.jsx";
 import { useMessages } from "../context/MessageContext.jsx";
 import { AccountDropdown } from "./AccountDropdown.jsx";
+import { OrderNotificationMenu } from "./OrderNotificationMenu.jsx";
 import { ThemeToggle } from "./ThemeToggle.jsx";
 
 const navItems = [
@@ -32,6 +33,7 @@ export function Navbar() {
             <MessageSquare size={18} />
             {unreadCount > 0 && <span className="absolute -right-1 -top-1 rounded-full bg-clay px-1.5 text-xs font-bold text-white">{unreadCount}</span>}
           </Link>
+          <OrderNotificationMenu />
           <Link className="btn-secondary relative h-10 w-10 px-0" to="/cart" title="Cart">
             <ShoppingBag size={18} />
             {count > 0 && <span className="absolute -right-1 -top-1 rounded-full bg-clay px-1.5 text-xs font-bold text-white">{count}</span>}

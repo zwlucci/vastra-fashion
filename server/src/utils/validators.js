@@ -173,6 +173,9 @@ export const checkoutSchema = z.object({
   fullName: z.string().trim().min(2).max(100),
   phoneNumber: z.string().trim().regex(/^\+?[0-9 ()-]{7,20}$/, "Enter a valid phone number"),
   deliveryAddress: z.string().trim().min(5).max(300),
+  couponCode: z.string().trim().max(40).optional().default(""),
+  saveShippingInfo: z.boolean().optional().default(false),
+  saveCardDetails: z.boolean().optional().default(false),
   card: z.object({
     cardholderName: z.string().trim().min(2).max(100),
     cardNumber: z.string().transform((value) => value.replace(/[ -]/g, "")).pipe(z.string().regex(/^\d{13,19}$/, "Enter a valid card number")),
@@ -195,6 +198,23 @@ export const checkoutSchema = z.object({
 export const returnOrderSchema = z.object({
   reason: z.string().trim().max(500).optional().default("")
 });
+
+export const couponCodeSchema = z.object({
+  code: z.string().trim().min(2).max(40).regex(/^[A-Za-z0-9_-]+$/, "Use letters, numbers, dashes, or underscores only")
+});
+
+export const couponSchema = z.object({
+  code: z.string().trim().min(2).max(40).regex(/^[A-Za-z0-9_-]+$/, "Use letters, numbers, dashes, or underscores only"),
+  discountType: z.enum(["percentage", "fixed"]),
+  discountValue: z.coerce.number().positive().max(1000000),
+  enabled: z.boolean().optional().default(true)
+}).superRefine((data, context) => {
+  if (data.discountType === "percentage" && data.discountValue > 100) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Percentage discount cannot exceed 100", path: ["discountValue"] });
+  }
+});
+
+export const couponToggleSchema = z.object({ enabled: z.boolean() });
 
 export const orderStatusSchema = z.object({
   status: z.enum(["pending", "processing", "shipped", "delivered", "cancelled"]),

@@ -2,8 +2,9 @@ import { query, withTransaction } from "../config/db.js";
 import { AppError, notFound } from "../utils/errors.js";
 import { sendOrderReceiptEmail, sendOrderStatusEmail } from "../utils/mailer.js";
 import { emitCartStockInvalidated, emitOrderUpdated, emitProductUpdated } from "../socket.js";
-import { sendOrderPlacedMessage, sendOrderStatusMessage } from "./messageController.js";
 import { updateStockAlertState } from "./productController.js";
+import { calculateCouponDiscount, getActiveCoupon } from "../utils/coupons.js";
+import { createOrderNotifications } from "../utils/orderNotifications.js";
 
 function mapOrderRows(rows) {
   const orders = new Map();
@@ -21,6 +22,12 @@ function mapOrderRows(rows) {
         maskedCardNumber: row.card_last4 ? `**** **** **** ${row.card_last4}` : "",
         cardholderName: row.cardholder_name || "",
         cardExpiry: row.card_expiry || "",
+        subtotalAmount: Number(row.subtotal_amount ?? row.total_amount),
+        shippingFee: Number(row.shipping_fee || 0),
+        discountAmount: Number(row.discount_amount || 0),
+        couponCode: row.coupon_code || "",
+        couponDiscountType: row.coupon_discount_type || "",
+        couponDiscountValue: row.coupon_discount_value === null || row.coupon_discount_value === undefined ? null : Number(row.coupon_discount_value),
         totalAmount: Number(row.total_amount),
         status: row.status,
         deliveredAt: row.delivered_at || (row.status === "delivered" ? row.updated_at : null),
@@ -68,7 +75,7 @@ async function getOrdersFor(where, params) {
 }
 
 export async function createOrder(req, res) {
-  const { paymentMethod, fullName, phoneNumber, deliveryAddress, card } = req.body;
+  const { paymentMethod, fullName, phoneNumber, deliveryAddress, card, couponCode, saveShippingInfo, saveCardDetails } = req.body;
   const order = await withTransaction(async (client) => {
     const cart = await client.query(
       `SELECT cart_items.product_id, cart_items.quantity, cart_items.selected_size, cart_items.selected_color,
@@ -105,12 +112,19 @@ export async function createOrder(req, res) {
       }
     }
 
-    const total = cart.rows.reduce((sum, item) => sum + item.effectivePrice * item.quantity, 0);
+    const subtotal = cart.rows.reduce((sum, item) => sum + item.effectivePrice * item.quantity, 0);
+    const coupon = couponCode ? await getActiveCoupon(client, couponCode, { lock: true }) : null;
+    const discountAmount = calculateCouponDiscount(subtotal, coupon);
+    const shippingFee = 0;
+    const total = Math.max(0, subtotal + shippingFee - discountAmount);
     const created = await client.query(
       `INSERT INTO orders
          (user_id, total_amount, status, payment_method, payment_status, delivery_name,
-          delivery_phone, delivery_address, cardholder_name, card_last4, card_expiry)
-       VALUES ($1, $2, 'pending', $3, $4, $5, $6, $7, $8, $9, $10)
+          delivery_phone, delivery_address, cardholder_name, card_last4, card_expiry,
+          subtotal_amount, shipping_fee, discount_amount, coupon_id, coupon_code,
+          coupon_discount_type, coupon_discount_value)
+       VALUES ($1, $2, 'pending', $3, $4, $5, $6, $7, $8, $9, $10,
+               $11, $12, $13, $14, $15, $16, $17)
        RETURNING *`,
       [
         req.user.id,
@@ -122,9 +136,29 @@ export async function createOrder(req, res) {
         deliveryAddress,
         paymentMethod === "card" ? card.cardholderName : null,
         paymentMethod === "card" ? card.cardNumber.slice(-4) : null,
-        paymentMethod === "card" ? card.expiryDate : null
+        paymentMethod === "card" ? card.expiryDate : null,
+        subtotal,
+        shippingFee,
+        discountAmount,
+        coupon?.id || null,
+        coupon?.code || null,
+        coupon?.discount_type || null,
+        coupon ? Number(coupon.discount_value) : null
       ]
     );
+
+    if (saveShippingInfo) {
+      await client.query(
+        "UPDATE users SET name = $1, phone_number = $2, shipping_address = $3 WHERE id = $4",
+        [fullName, phoneNumber, deliveryAddress, req.user.id]
+      );
+    }
+    if (paymentMethod === "card" && saveCardDetails) {
+      await client.query(
+        "UPDATE users SET saved_cardholder_name = $1, saved_card_last4 = $2, saved_card_expiry = $3 WHERE id = $4",
+        [card.cardholderName, card.cardNumber.slice(-4), card.expiryDate, req.user.id]
+      );
+    }
 
     for (const item of cart.rows) {
       await client.query(
@@ -160,8 +194,23 @@ export async function createOrder(req, res) {
   emitOrderUpdated(detailedOrder, vendorResult.rows.map((row) => row.vendor_id));
 
   try {
+    const adminResult = await query("SELECT id FROM users WHERE role = 'admin'");
+    const vendorIds = vendorResult.rows.map((row) => row.vendor_id).filter(Boolean);
     await Promise.all([
-      sendOrderPlacedMessage(detailedOrder),
+      createOrderNotifications([detailedOrder.userId], {
+        orderId: detailedOrder.id,
+        type: "order_placed",
+        title: "Order placed",
+        message: `Order #${detailedOrder.id.slice(0, 8)} was placed successfully.`,
+        metadata: { status: detailedOrder.status, paymentStatus: detailedOrder.paymentStatus }
+      }),
+      createOrderNotifications([...vendorIds, ...adminResult.rows.map((row) => row.id)], {
+        orderId: detailedOrder.id,
+        type: "order_placed",
+        title: "New order",
+        message: `A new order #${detailedOrder.id.slice(0, 8)} has been placed.`,
+        metadata: { status: detailedOrder.status }
+      }),
       sendOrderReceiptEmail(detailedOrder.customerEmail, detailedOrder)
     ]);
   } catch (error) {
@@ -296,16 +345,12 @@ async function applyOrderStatusUpdate({ orderId, status, explanation, actor }) {
 
   if (result.changed) {
     const detailedOrder = (await getOrdersFor("WHERE orders.id = $1", [orderId]))[0];
-    await sendOrderStatusMessage({
+    await createOrderNotifications([detailedOrder.userId], {
       orderId,
-      userId: result.order.user_id,
-      vendorId: actor.role === "vendor" ? actor.id : null,
-      senderId: actor.id,
-      senderRole: actor.role,
-      status,
-      explanation,
-      items: detailedOrder.items,
-      totalAmount: detailedOrder.totalAmount
+      type: status === "cancelled" ? "order_cancelled" : "status_updated",
+      title: status === "cancelled" ? "Order cancelled" : "Delivery status updated",
+      message: `Order #${orderId.slice(0, 8)} is now ${status}.`,
+      metadata: { status, explanation }
     });
 
     try {
@@ -369,16 +414,14 @@ export async function cancelOrder(req, res) {
   const detailedOrder = (await getOrdersFor("WHERE orders.id = $1", [req.params.id]))[0];
   emitOrderUpdated(detailedOrder, vendors.rows.map((row) => row.vendor_id));
   try {
+    const admins = await query("SELECT id FROM users WHERE role = 'admin'");
     await Promise.all([
-      sendOrderStatusMessage({
+      createOrderNotifications([detailedOrder.userId, ...vendors.rows.map((row) => row.vendor_id), ...admins.rows.map((row) => row.id)], {
         orderId: detailedOrder.id,
-        userId: detailedOrder.userId,
-        senderId: req.user.id,
-        senderRole: "user",
-        status: "cancelled",
-        explanation: "Cancelled by customer.",
-        items: detailedOrder.items,
-        totalAmount: detailedOrder.totalAmount
+        type: "order_cancelled",
+        title: "Order cancelled",
+        message: `Order #${detailedOrder.id.slice(0, 8)} was cancelled by the customer.`,
+        metadata: { status: "cancelled", paymentStatus: detailedOrder.paymentStatus }
       }),
       sendOrderStatusEmail(result.order.customer_email, { ...detailedOrder, status: "cancelled", explanation: "Cancelled by customer." })
     ]);
@@ -419,6 +462,18 @@ export async function requestOrderReturn(req, res) {
   );
   const detailedOrder = (await getOrdersFor("WHERE orders.id = $1", [updated.id]))[0];
   emitOrderUpdated(detailedOrder, vendors.rows.map((row) => row.vendor_id));
+  try {
+    const admins = await query("SELECT id FROM users WHERE role = 'admin'");
+    await createOrderNotifications([detailedOrder.userId, ...vendors.rows.map((row) => row.vendor_id), ...admins.rows.map((row) => row.id)], {
+      orderId: detailedOrder.id,
+      type: "return_requested",
+      title: "Return requested",
+      message: `A return was requested for order #${detailedOrder.id.slice(0, 8)}.`,
+      metadata: { returnStatus: detailedOrder.returnStatus }
+    });
+  } catch (error) {
+    console.error(`[VASTRA return notification] ${error.message}`);
+  }
   res.json({ order: detailedOrder, message: "Return request submitted successfully." });
 }
 

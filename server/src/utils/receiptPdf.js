@@ -118,19 +118,29 @@ export function createOrderReceiptPdf(order) {
       doc.moveTo(left, y - 8).lineTo(right, y - 8).strokeColor("#eeeeee").stroke();
     });
 
-    if (y + 120 > doc.page.height - 45) {
+    if (y + 165 > doc.page.height - 45) {
       doc.addPage({ size: "A4", margin: 0 });
       doc.rect(0, 0, doc.page.width, doc.page.height).fill("#ffffff");
       y = 70;
     } else {
       y += 10;
     }
-    drawMoneyLine(doc, "Subtotal", order.totalAmount, y);
-    drawMoneyLine(doc, "Total", order.totalAmount, y + 24, true);
-    doc.moveTo(365, y + 49).lineTo(right, y + 49).strokeColor(rule).stroke();
-    drawMoneyLine(doc, "Amount paid", paid ? order.totalAmount : 0, y + 62, true);
+    const subtotal = Number(order.subtotalAmount ?? order.totalAmount);
+    const discount = Number(order.discountAmount || 0);
+    const shipping = Number(order.shippingFee || 0);
+    drawMoneyLine(doc, "Subtotal", subtotal, y);
+    let totalsY = y + 24;
+    if (discount > 0) {
+      drawMoneyLine(doc, order.couponCode ? `Discount (${order.couponCode})` : "Discount", -discount, totalsY);
+      totalsY += 24;
+    }
+    drawMoneyLine(doc, "Shipping", shipping, totalsY);
+    totalsY += 24;
+    drawMoneyLine(doc, "Total", order.totalAmount, totalsY, true);
+    doc.moveTo(365, totalsY + 25).lineTo(right, totalsY + 25).strokeColor(rule).stroke();
+    drawMoneyLine(doc, "Amount paid", paid ? order.totalAmount : 0, totalsY + 38, true);
 
-    const footerY = Math.min(doc.page.height - 62, y + 125);
+    const footerY = Math.min(doc.page.height - 62, totalsY + 100);
     doc.font("Helvetica").fontSize(9).fillColor(muted).text(
       "Thank you for shopping with VASTRA.",
       left,

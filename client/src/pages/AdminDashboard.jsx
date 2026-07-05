@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api, getErrorMessage } from "../api/client.js";
 import { AdminProductApprovalTable } from "../components/AdminProductApprovalTable.jsx";
 import { AdminUsersTable } from "../components/AdminUsersTable.jsx";
+import { AdminCouponManager } from "../components/AdminCouponManager.jsx";
 import { useMessages } from "../context/MessageContext.jsx";
 
 function MetricSection({ title, metrics }) {
@@ -222,6 +223,7 @@ export function AdminDashboard() {
           ]} />
         </div>
       )}
+      <AdminCouponManager />
       <div className="space-y-4">
         <h2 className="text-2xl font-black">Product approvals</h2>
         <AdminProductApprovalTable products={products} onApprove={approve} onReject={reject} />

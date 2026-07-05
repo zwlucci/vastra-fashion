@@ -38,13 +38,13 @@ export function OrderTable({ orders, onStatusChange, onCancel, onReturn, actingO
                   <div className="space-y-2">
                     {order.items?.map((item) => (
                       <div className="flex items-center gap-3" key={item.id}>
-                        <ProductImage className="h-10 w-8 rounded object-cover" src={item.imageUrl} alt={item.name} />
+                        <ProductImage className="h-10 w-8 rounded object-contain" src={item.imageUrl} alt={item.name} />
                         <span>{item.name}{item.selectedSize ? ` · ${item.selectedSize}` : ""}{item.selectedColor ? ` · ${item.selectedColor}` : ""} x{item.quantity}</span>
                       </div>
                     ))}
                   </div>
                 </td>
-                <td className="px-4 py-3 font-semibold">{money(order.totalAmount)}</td>
+                <td className="px-4 py-3"><p className="font-semibold">{money(order.totalAmount)}</p>{order.discountAmount > 0 && <><p className="text-xs text-neutral-400 line-through">{money(order.subtotalAmount)}</p><p className="text-xs font-semibold text-green-600">-{money(order.discountAmount)}{order.couponCode ? ` · ${order.couponCode}` : ""}</p></>}</td>
                 <td className="px-4 py-3"><span className={`badge ${statusClass(order.status)}`}>{order.status}</span>{order.returnStatus && order.returnStatus !== "none" && <p className="mt-2 text-xs font-semibold capitalize text-clay">Return {order.returnStatus}</p>}</td>
                 <td className="px-4 py-3"><p className="font-semibold capitalize">{order.paymentMethod === "cod" ? "Cash on delivery" : order.paymentMethod}</p><p className="text-xs capitalize text-neutral-500">{order.status === "cancelled" ? "Order Cancelled" : order.paymentStatus}</p></td>
                 {showStatusActions && (

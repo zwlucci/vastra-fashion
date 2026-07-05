@@ -6,12 +6,11 @@ import { serializeUser } from "./utils/serializers.js";
 let io;
 
 async function unreadCountFor(user) {
-  const params = [];
+  const params = [user.id];
   let where = "AND message_conversations.vendor_id IS NULL";
   let unreadWhere = "conversation_messages.read_by_admin = false AND conversation_messages.sender_role <> 'admin'";
 
   if (user.role !== "admin") {
-    params.push(user.id);
     where = "AND (message_conversations.user_id = $1 OR message_conversations.vendor_id = $1)";
     unreadWhere = `(
       (message_conversations.user_id = $1 AND conversation_messages.read_by_user = false AND conversation_messages.sender_role <> 'user')
@@ -24,8 +23,19 @@ async function unreadCountFor(user) {
     `SELECT COUNT(conversation_messages.id)::int AS count
      FROM conversation_messages
      JOIN message_conversations ON message_conversations.id = conversation_messages.conversation_id
-     WHERE ${unreadWhere} ${where}`,
+     LEFT JOIN conversation_deletions ON conversation_deletions.conversation_id = message_conversations.id
+       AND conversation_deletions.user_id = $1
+     WHERE conversation_messages.created_at > COALESCE(conversation_deletions.hidden_before, '-infinity'::timestamptz)
+       AND ${unreadWhere} ${where}`,
     params
+  );
+  return rows[0].count;
+}
+
+async function orderNotificationCountFor(userId) {
+  const { rows } = await query(
+    "SELECT COUNT(*)::int AS count FROM order_notifications WHERE user_id = $1 AND read_at IS NULL",
+    [userId]
   );
   return rows[0].count;
 }
@@ -61,9 +71,28 @@ export function initSocket(server, allowedOrigins) {
     }
 
     socket.emit("unread:updated", { count: await unreadCountFor(socket.user) });
+    socket.emit("order-notifications:updated", { count: await orderNotificationCountFor(socket.user.id) });
   });
 
   return io;
+}
+
+export async function emitOrderNotificationCount(userId) {
+  if (!io || !userId) return;
+  io.to(`user:${userId}`).emit("order-notifications:updated", { count: await orderNotificationCountFor(userId) });
+}
+
+export async function emitOrderNotification(userId, notification) {
+  if (!io || !userId) return;
+  io.to(`user:${userId}`).emit("order-notification:new", {
+    notification,
+    count: await orderNotificationCountFor(userId)
+  });
+}
+
+export function emitConversationDeleted(userId, conversationId) {
+  if (!io || !userId || !conversationId) return;
+  io.to(`user:${userId}`).emit("conversation:deleted", { conversationId });
 }
 
 export async function emitUnreadToUser(user) {
@@ -151,10 +180,11 @@ export async function emitCartStockInvalidated(product) {
 
 export function emitOrderUpdated(order, vendorIds = []) {
   if (!io || !order) return;
-  const payload = { orderId: order.id, userId: order.user_id, status: order.status };
+  const userId = order.user_id || order.userId;
+  const payload = { orderId: order.id, userId, status: order.status };
   io.to("admins").emit("order:updated", payload);
   io.to("admins").emit("dashboard:updated", { scope: "orders" });
-  if (order.user_id) io.to(`user:${order.user_id}`).emit("order:updated", payload);
+  if (userId) io.to(`user:${userId}`).emit("order:updated", payload);
   [...new Set(vendorIds.filter(Boolean))].forEach((vendorId) => {
     io.to(`user:${vendorId}`).emit("order:updated", payload);
     io.to(`user:${vendorId}`).emit("dashboard:updated", { scope: "orders" });

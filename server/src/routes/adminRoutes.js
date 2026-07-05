@@ -7,15 +7,20 @@ import { listAdminProducts, setProductStatus, updateProduct } from "../controlle
 import { listAdminReviews, setReviewPinned } from "../controllers/reviewController.js";
 import { deleteEntityReviewAsAdmin, listEntityReviewsForAdmin } from "../controllers/entityReviewController.js";
 import { listWardrobeProducts, updateWardrobeProduct } from "../controllers/wardrobeController.js";
+import { createCoupon, disableCoupon, listCoupons, updateCoupon } from "../controllers/couponController.js";
 import { authenticateUser, requireAdmin } from "../middleware/auth.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { orderStatusSchema, productDecisionSchema, productSchema, reviewPinSchema, roleSchema, validate, wardrobeAdminSchema } from "../utils/validators.js";
+import { couponSchema, couponToggleSchema, orderStatusSchema, productDecisionSchema, productSchema, reviewPinSchema, roleSchema, validate, wardrobeAdminSchema } from "../utils/validators.js";
 
 export const adminRoutes = Router();
 
 adminRoutes.use(authenticateUser, requireAdmin);
 
 adminRoutes.get("/stats", asyncHandler(getStats));
+adminRoutes.get("/coupons", asyncHandler(listCoupons));
+adminRoutes.post("/coupons", validate(couponSchema), asyncHandler(createCoupon));
+adminRoutes.patch("/coupons/:id", validate(couponToggleSchema), asyncHandler(updateCoupon));
+adminRoutes.delete("/coupons/:id", asyncHandler(disableCoupon));
 adminRoutes.patch("/orders/:id/status", validate(orderStatusSchema), asyncHandler(updateOrderStatus));
 adminRoutes.get("/products", asyncHandler(listAdminProducts));
 adminRoutes.put("/products/:id", validate(productSchema), asyncHandler(updateProduct));
