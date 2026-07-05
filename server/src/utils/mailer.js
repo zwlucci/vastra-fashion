@@ -7,6 +7,7 @@ import { AppError } from "./errors.js";
 import { createOrderReceiptPdf } from "./receiptPdf.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const serverRoot = path.resolve(__dirname, "../..");
 const uploadsRoot = path.resolve(__dirname, "../../uploads");
 
 function boolEnv(value) {
@@ -42,35 +43,73 @@ function escapeHtml(value) {
   })[character]);
 }
 
-export function resolveOrderImageUrl(url) {
-  const imagePath = String(url || "").trim();
-  if (!imagePath || /^file:/i.test(imagePath)) return "";
-  if (/^https?:\/\//i.test(imagePath)) return imagePath;
+export function resolveProductImagePath(value) {
+  let imagePath = String(value || "").trim();
+  if (!imagePath) return "";
 
-  const match = /^\/uploads\/products\/([^/?#]+)$/.exec(imagePath);
-  if (!match || path.basename(match[1]) !== match[1]) return "";
-  const localPath = path.resolve(uploadsRoot, "products", match[1]);
-  if (!localPath.startsWith(`${path.join(uploadsRoot, "products")}${path.sep}`) || !fs.existsSync(localPath)) return "";
-
-  const configuredOrigin = process.env.SERVER_PUBLIC_URL
-    || process.env.APP_BASE_URL
-    || process.env.SERVER_URL
-    || process.env.API_ORIGIN
-    || "";
+  let candidate;
   try {
-    const origin = new URL(configuredOrigin);
-    if (!["http:", "https:"].includes(origin.protocol)) return "";
-    origin.pathname = origin.pathname.replace(/\/api\/?$/, "").replace(/\/$/, "");
-    origin.search = "";
-    origin.hash = "";
-    return new URL(imagePath, `${origin.toString().replace(/\/$/, "")}/`).toString();
+    if (/^https?:\/\//i.test(imagePath)) {
+      const imageUrl = new URL(imagePath);
+      if (!/^[\\/]uploads[\\/]/i.test(imageUrl.pathname)) return "";
+      imagePath = decodeURIComponent(imageUrl.pathname);
+    }
+
+    if (/^file:/i.test(imagePath)) {
+      candidate = fileURLToPath(imagePath);
+    } else if (/^[\\/]uploads[\\/]/i.test(imagePath)) {
+      const uploadRelativePath = imagePath.replace(/^[\\/]uploads[\\/]/i, "");
+      candidate = path.resolve(uploadsRoot, uploadRelativePath);
+      if (!candidate.startsWith(`${uploadsRoot}${path.sep}`)) return "";
+    } else if (path.isAbsolute(imagePath)) {
+      candidate = path.normalize(imagePath);
+    } else {
+      candidate = path.resolve(serverRoot, imagePath);
+      if (candidate !== serverRoot && !candidate.startsWith(`${serverRoot}${path.sep}`)) return "";
+    }
+
+    return fs.statSync(candidate).isFile() ? candidate : "";
   } catch {
     return "";
   }
 }
 
-function orderImageSources(items = []) {
-  return items.map((item) => resolveOrderImageUrl(item.imageUrl));
+export function getProductImageCid(item, index) {
+  const itemKey = String(item?.id || item?.productId || "item").replace(/[^a-zA-Z0-9_-]/g, "-");
+  return `product-image-${itemKey}-${index}@vastra`;
+}
+
+function isLocalOnlyUrl(value) {
+  try {
+    const { hostname } = new URL(value);
+    return ["localhost", "127.0.0.1", "::1", "[::1]"].includes(hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+export function buildInlineProductImageAttachments(items = []) {
+  const attachments = [];
+  const imageSources = items.map((item, index) => {
+    const absoluteImagePath = resolveProductImagePath(item.imageUrl);
+    if (absoluteImagePath) {
+      const cid = getProductImageCid(item, index);
+      const extension = path.extname(absoluteImagePath);
+      attachments.push({
+        filename: `product-image-${String(item.id || item.productId || index)}${extension}`,
+        path: absoluteImagePath,
+        cid
+      });
+      return `cid:${cid}`;
+    }
+
+    const imageUrl = String(item.imageUrl || "").trim();
+    if (/^https?:\/\//i.test(imageUrl) && !isLocalOnlyUrl(imageUrl)) return imageUrl;
+    if (imageUrl) console.warn(`[VASTRA order email] Product image could not be resolved: ${imageUrl}`);
+    return "";
+  });
+
+  return { attachments, imageSources };
 }
 
 function orderItemsText(items = []) {
@@ -156,7 +195,7 @@ export async function sendOrderReceiptEmail(to, order) {
   const config = getMailConfig();
   const transporter = transporterFor(config);
   const receipt = await createOrderReceiptPdf(order);
-  const imageSources = orderImageSources(order.items);
+  const { attachments: imageAttachments, imageSources } = buildInlineProductImageAttachments(order.items);
   const paymentName = order.paymentMethod === "card" ? "Card" : "Cash on Delivery";
   const text = [
     `Hello ${order.customerName},`, "", `Your VASTRA order #${order.id} was placed successfully.`,
@@ -177,7 +216,10 @@ export async function sendOrderReceiptEmail(to, order) {
     subject: `VASTRA order ${String(order.id).slice(0, 8)} confirmed`,
     text,
     html,
-    attachments: [{ filename: `VASTRA-receipt-${String(order.id).slice(0, 8)}.pdf`, content: receipt, contentType: "application/pdf" }]
+    attachments: [
+      { filename: `VASTRA-receipt-${String(order.id).slice(0, 8)}.pdf`, content: receipt, contentType: "application/pdf" },
+      ...imageAttachments
+    ]
   });
 }
 
@@ -185,7 +227,7 @@ export async function sendOrderStatusEmail(to, order) {
   const { id: orderId, status, explanation = "" } = order;
   const config = getMailConfig();
   const transporter = transporterFor(config);
-  const imageSources = orderImageSources(order.items);
+  const { attachments: imageAttachments, imageSources } = buildInlineProductImageAttachments(order.items);
   const displayStatus = status.charAt(0).toUpperCase() + status.slice(1);
   const helpfulMessage = {
     processing: "We are preparing your items for dispatch.",
@@ -216,7 +258,8 @@ export async function sendOrderStatusEmail(to, order) {
         order,
         imageSources,
         body: `<p style="line-height:1.6">${escapeHtml(helpfulMessage)}</p>${explanation ? `<p style="line-height:1.6"><strong>Details:</strong> ${escapeHtml(explanation)}</p>` : ""}`
-      })
+      }),
+      attachments: imageAttachments
     });
   } catch {
     throw new AppError("Could not send the order status email.", 502);
