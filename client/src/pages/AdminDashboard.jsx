@@ -67,7 +67,7 @@ export function AdminDashboard() {
         setData((current) => ({ ...current, users: users.data.users, vendors: vendors.data.users }));
         setMeta(users.data.meta); setVendorMeta(vendors.data.meta);
       }
-      if (section === "order-history") { const response = await api.get("/orders"); setData((current) => ({ ...current, orders: response.data.orders || [] })); }
+      if (section === "order-history") { const response = await api.get("/admin/orders"); setData((current) => ({ ...current, orders: response.data.orders || [] })); }
       if (section === "contact-messages") { const response = await api.get(`/admin/contact-messages?page=${page}&limit=5`); setData((current) => ({ ...current, messages: response.data.messages })); setMeta(response.data.meta); }
       if (section === "user-reviews") { const response = await api.get("/admin/reviews"); setData((current) => ({ ...current, reviews: response.data.reviews || [] })); }
       if (["product-reviews", "vendor-reviews"].includes(section)) { const type = section.startsWith("product") ? "product" : "vendor"; const response = await api.get(`/admin/entity-reviews?type=${type}&page=${page}&limit=5`); setData((current) => ({ ...current, entityReviews: response.data.reviews || [] })); setMeta(response.data.meta); }
