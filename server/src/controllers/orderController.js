@@ -244,10 +244,12 @@ export async function createOrder(req, res) {
 }
 
 export async function listOrders(req, res) {
-  const orders =
-    req.user.role === "admin"
-      ? await getOrdersFor("", [])
-      : await getOrdersFor("WHERE orders.user_id = $1", [req.user.id]);
+  const orders = await getOrdersFor("WHERE orders.user_id = $1", [req.user.id]);
+  res.json({ orders });
+}
+
+export async function listAllOrders(_req, res) {
+  const orders = await getOrdersFor("", []);
   res.json({ orders });
 }
 
@@ -313,9 +315,7 @@ export async function getVendorIncomeSummary(req, res) {
 }
 
 export async function getOrder(req, res) {
-  const where = req.user.role === "admin" ? "WHERE orders.id = $1" : "WHERE orders.id = $1 AND orders.user_id = $2";
-  const params = req.user.role === "admin" ? [req.params.id] : [req.params.id, req.user.id];
-  const orders = await getOrdersFor(where, params);
+  const orders = await getOrdersFor("WHERE orders.id = $1 AND orders.user_id = $2", [req.params.id, req.user.id]);
   if (!orders[0]) throw notFound("Order not found");
   res.json({ order: orders[0] });
 }
