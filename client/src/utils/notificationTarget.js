@@ -16,7 +16,7 @@ export function notificationTarget(notification, role) {
     if (includesAny(type, ["vendor review"])) return "/admin/dashboard/vendor-reviews";
     if (includesAny(type, ["review", "testimonial"])) return "/admin/dashboard/user-reviews";
     if (includesAny(type, ["user", "vendor registration", "vendor application"])) return "/admin/dashboard/users-vendors";
-    return notification.orderId ? `/orders?orderId=${notification.orderId}` : "/admin/dashboard/stat-viewer";
+    return notification.orderId ? `/admin/dashboard/order-history?orderId=${notification.orderId}` : "/admin/dashboard/stat-viewer";
   }
 
   if (role === "vendor") {

@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { BarChart3, MessageSquare, PackageCheck, Percent, Shirt, Star, Store, Trash2, UserRound } from "lucide-react";
-import { Link, NavLink, Navigate, useNavigate, useParams } from "react-router-dom";
+import { BarChart3, ClipboardList, MessageSquare, PackageCheck, Percent, Shirt, Star, Store, Trash2, UserRound } from "lucide-react";
+import { Link, NavLink, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, getErrorMessage } from "../api/client.js";
 import { AdminCouponManager } from "../components/AdminCouponManager.jsx";
 import { AdminProductApprovalTable } from "../components/AdminProductApprovalTable.jsx";
 import { AdminUsersTable } from "../components/AdminUsersTable.jsx";
+import { AdminOrderHistory } from "../components/AdminOrderHistory.jsx";
 import { useMessages } from "../context/MessageContext.jsx";
 
 const sections = [
@@ -12,6 +13,7 @@ const sections = [
   ["coupons", "Coupon Management", Percent],
   ["product-approvals", "Product Approvals", PackageCheck],
   ["users-vendors", "Users and Vendors", UserRound],
+  ["order-history", "Order History", ClipboardList],
   ["contact-messages", "Contact Messages", MessageSquare],
   ["user-reviews", "User Reviews", Star],
   ["product-reviews", "Product Reviews", Star],
@@ -37,7 +39,8 @@ export function AdminDashboard() {
   const valid = sections.some(([key]) => key === section);
   const { socket } = useMessages();
   const navigate = useNavigate();
-  const [data, setData] = useState({ stats: null, products: [], users: [], vendors: [], messages: [], reviews: [], entityReviews: [] });
+  const [searchParams] = useSearchParams();
+  const [data, setData] = useState({ stats: null, products: [], users: [], vendors: [], orders: [], messages: [], reviews: [], entityReviews: [] });
   const [meta, setMeta] = useState(null);
   const [page, setPage] = useState(1);
   const [vendorPage, setVendorPage] = useState(1);
@@ -64,6 +67,7 @@ export function AdminDashboard() {
         setData((current) => ({ ...current, users: users.data.users, vendors: vendors.data.users }));
         setMeta(users.data.meta); setVendorMeta(vendors.data.meta);
       }
+      if (section === "order-history") { const response = await api.get("/orders"); setData((current) => ({ ...current, orders: response.data.orders || [] })); }
       if (section === "contact-messages") { const response = await api.get(`/admin/contact-messages?page=${page}&limit=5`); setData((current) => ({ ...current, messages: response.data.messages })); setMeta(response.data.meta); }
       if (section === "user-reviews") { const response = await api.get("/admin/reviews"); setData((current) => ({ ...current, reviews: response.data.reviews || [] })); }
       if (["product-reviews", "vendor-reviews"].includes(section)) { const type = section.startsWith("product") ? "product" : "vendor"; const response = await api.get(`/admin/entity-reviews?type=${type}&page=${page}&limit=5`); setData((current) => ({ ...current, entityReviews: response.data.reviews || [] })); setMeta(response.data.meta); }
@@ -71,11 +75,14 @@ export function AdminDashboard() {
   }, [page, search, section, sort, valid, vendorPage, vendorSearch, vendorSort]);
 
   useEffect(() => { setPage(1); setMeta(null); setError(""); }, [section]);
+  useEffect(() => { if (section !== "order-history") return; const orderId = searchParams.get("orderId"); const index = data.orders.findIndex((order) => order.id === orderId); if (index >= 0) setPage(Math.floor(index / 10) + 1); }, [data.orders, searchParams, section]);
   useEffect(() => { loadSection(); }, [loadSection]);
   useEffect(() => { if (!socket) return undefined; const refresh = () => loadSection(); socket.on("dashboard:updated", refresh); return () => socket.off("dashboard:updated", refresh); }, [socket, loadSection]);
 
   async function decideProduct(id, status, reason) { await api.patch(`/admin/products/${id}/${status}`, status === "reject" ? { reason } : {}); await loadSection(); }
   async function promoteUser(id) { try { await api.patch(`/admin/users/${id}/role`, { role: "vendor" }); setNotice("User promoted to vendor."); await loadSection(); } catch (err) { setError(getErrorMessage(err)); } }
+  async function updateOrderStatus(id, status) { try { await api.patch(`/admin/orders/${id}/status`, { status }); setNotice("Order status updated."); await loadSection(); } catch (err) { setError(getErrorMessage(err)); } }
+  async function updateReturnStatus(id, status) { try { await api.patch(`/admin/orders/${id}/return-status`, { status }); setNotice(`Return marked ${status}.`); await loadSection(); } catch (err) { setError(getErrorMessage(err)); } }
   async function toggleReviewPin(review) { await api.patch(`/admin/reviews/${review.id}/pin`, { pinned: !review.pinned }); await loadSection(); }
   async function deleteEntityReview(review) { await api.delete(`/admin/entity-reviews/${review.entityType}/${review.id}`); await loadSection(); }
   async function openContactChat(id) { try { const { data: response } = await api.post(`/admin/contact-messages/${id}/conversation`); navigate(`/messages?conversationId=${response.conversation.id}`); } catch (err) { setError(getErrorMessage(err)); } }
@@ -93,6 +100,7 @@ export function AdminDashboard() {
           {section === "coupons" && <AdminCouponManager />}
           {section === "product-approvals" && <AdminProductApprovalTable products={data.products} onApprove={(id) => decideProduct(id, "approve")} onReject={(id, reason) => decideProduct(id, "reject", reason)} />}
           {section === "users-vendors" && <div className="grid gap-6 xl:grid-cols-2"><AdminUsersTable title="Users" users={data.users} onPromote={promoteUser} meta={meta} page={page} setPage={setPage} search={search} setSearch={(value) => { setSearch(value); setPage(1); }} sort={sort} setSort={(value) => { setSort(value); setPage(1); }} /><AdminUsersTable title="Vendors" users={data.vendors} onPromote={promoteUser} meta={vendorMeta} page={vendorPage} setPage={setVendorPage} search={vendorSearch} setSearch={(value) => { setVendorSearch(value); setVendorPage(1); }} sort={vendorSort} setSort={(value) => { setVendorSort(value); setVendorPage(1); }} /></div>}
+          {section === "order-history" && <div><AdminOrderHistory orders={data.orders.slice((page - 1) * 10, page * 10)} focusedOrderId={searchParams.get("orderId") || ""} onStatusChange={updateOrderStatus} onReturnStatusChange={updateReturnStatus} /><Pager meta={{ page, totalPages: Math.max(1, Math.ceil(data.orders.length / 10)), total: data.orders.length }} page={page} setPage={setPage} noun="orders" /></div>}
           {section === "contact-messages" && <div className="panel">{data.messages.map((item) => <div className="border-b border-neutral-200 py-4 first:pt-0 last:border-0 dark:border-neutral-800" key={item.id}><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold">{item.subject}</p><p className="text-sm text-neutral-500">{item.name} · {item.email}</p></div><button className="btn-secondary h-9 px-3" onClick={() => openContactChat(item.id)} type="button"><MessageSquare size={16} /> Chat</button></div><p className="mt-2 text-sm">{item.message}</p></div>)}{!data.messages.length && <p className="text-sm text-neutral-500">No contact messages.</p>}<Pager meta={meta} page={page} setPage={setPage} noun="messages" /></div>}
           {section === "user-reviews" && <div className="panel"><div className="max-h-[620px] space-y-3 overflow-auto">{data.reviews.map((review) => <div className="border-b border-neutral-200 pb-3 last:border-0 dark:border-neutral-800" key={review.id}><div className="flex items-start justify-between gap-3"><div><p className="font-semibold">{review.user.name}</p><p className="text-sm text-neutral-500">{new Date(review.createdAt).toLocaleDateString()}</p></div><button className={review.pinned ? "btn-primary h-9 px-3" : "btn-secondary h-9 px-3"} onClick={() => toggleReviewPin(review)} type="button">{review.pinned ? "Unpin" : "Pin"}</button></div><p className="mt-2 text-sm">{review.body}</p></div>)}{!data.reviews.length && <p className="text-sm text-neutral-500">No reviews yet.</p>}</div></div>}
           {["product-reviews", "vendor-reviews"].includes(section) && <div className="panel"><EntityReviewList type={section.startsWith("product") ? "product" : "vendor"} reviews={data.entityReviews} meta={meta} loading={false} page={page} setPage={setPage} onDelete={deleteEntityReview} /></div>}

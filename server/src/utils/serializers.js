@@ -59,6 +59,7 @@ export function serializeProduct(product) {
     size_prices,
     color_stock_status,
     vendor_id,
+    vendor_name,
     vendor_profile_image_url,
     vendor_brand_name,
     vendor_brand_description,
@@ -74,6 +75,7 @@ export function serializeProduct(product) {
   return {
     ...rest,
     vendorId: vendor_id,
+    vendorName: vendor_name,
     vendorProfileImageUrl: vendor_profile_image_url,
     vendorBrandName: vendor_brand_name,
     vendorBrandDescription: vendor_brand_description,

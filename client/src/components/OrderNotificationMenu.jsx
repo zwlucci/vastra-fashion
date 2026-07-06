@@ -38,7 +38,7 @@ export function OrderNotificationMenu() {
               </Link>
             )) : <p className="p-5 text-center text-sm text-neutral-500">No order updates yet.</p>}
           </div>
-          <Link className="block border-t border-neutral-200 p-3 text-center text-sm font-bold text-clay dark:border-neutral-800" to={user?.role === "vendor" ? "/vendor/dashboard/orders" : "/orders"} onClick={() => setOpen(false)}>View all orders</Link>
+          <Link className="block border-t border-neutral-200 p-3 text-center text-sm font-bold text-clay dark:border-neutral-800" to={user?.role === "admin" ? "/admin/dashboard/order-history" : user?.role === "vendor" ? "/vendor/dashboard/orders" : "/orders"} onClick={() => setOpen(false)}>View all orders</Link>
         </div>
       )}
     </div>

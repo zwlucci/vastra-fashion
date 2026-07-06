@@ -46,6 +46,7 @@ function mapOrderRows(rows) {
         id: row.item_id,
         productId: row.product_id,
         vendorId: row.product_vendor_id,
+        vendorName: row.product_vendor_name || "",
         name: row.product_name,
         brand: row.product_brand,
         imageUrl: row.product_image_url,
@@ -65,11 +66,12 @@ async function getOrdersFor(where, params) {
             order_items.id AS item_id, order_items.product_id, order_items.quantity,
             order_items.selected_size, order_items.selected_color, order_items.price_at_purchase, products.name AS product_name,
             products.vendor_id AS product_vendor_id, products.brand AS product_brand,
-            products.image_url AS product_image_url
+            products.image_url AS product_image_url, vendor_users.name AS product_vendor_name
      FROM orders
      JOIN users ON users.id = orders.user_id
      LEFT JOIN order_items ON order_items.order_id = orders.id
      LEFT JOIN products ON products.id = order_items.product_id
+     LEFT JOIN users AS vendor_users ON vendor_users.id = products.vendor_id
      ${where}
      ORDER BY orders.created_at DESC`,
     params
