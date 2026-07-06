@@ -1,5 +1,6 @@
-import { AlertTriangle, Plus, X } from "lucide-react";
+import { AlertTriangle, Banknote, Boxes, PackageCheck, Plus, X } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
+import { NavLink, Navigate, useParams } from "react-router-dom";
 import { api, getErrorMessage } from "../api/client.js";
 import { ProductForm } from "../components/ProductForm.jsx";
 import { VendorOrderTable } from "../components/VendorOrderTable.jsx";
@@ -7,7 +8,17 @@ import { VendorProductTable } from "../components/VendorProductTable.jsx";
 import { money } from "../utils/format.js";
 import { useMessages } from "../context/MessageContext.jsx";
 
+const vendorSections = [["income", "Income", Banknote], ["products", "Products", Boxes], ["orders", "Orders for Your Products", PackageCheck]];
+
+function Pagination({ page, total, onChange }) {
+  const pages = Math.max(1, Math.ceil(total / 10));
+  if (pages <= 1) return null;
+  return <div className="mt-4 flex items-center justify-between gap-3"><p className="text-sm text-neutral-500">Page {page} of {pages}</p><div className="flex gap-2"><button className="btn-secondary" disabled={page <= 1} onClick={() => onChange(page - 1)} type="button">Previous</button><button className="btn-secondary" disabled={page >= pages} onClick={() => onChange(page + 1)} type="button">Next</button></div></div>;
+}
+
 export function VendorDashboard() {
+  const { section = "income" } = useParams();
+  const validSection = vendorSections.some(([key]) => key === section);
   const { socket } = useMessages();
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
@@ -18,6 +29,8 @@ export function VendorDashboard() {
   const [deletingProduct, setDeletingProduct] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const productFormRef = useRef(null);
+  const [productPage, setProductPage] = useState(1);
+  const [orderPage, setOrderPage] = useState(1);
 
   async function loadProducts() {
     const { data } = await api.get("/vendor/products");
@@ -37,6 +50,8 @@ export function VendorDashboard() {
   useEffect(() => {
     Promise.all([loadProducts(), loadOrders(), loadIncome()]);
   }, []);
+
+  useEffect(() => { setProductPage(1); setOrderPage(1); }, [section]);
 
   useEffect(() => {
     if (editing && showForm) productFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -112,20 +127,29 @@ export function VendorDashboard() {
     }
   }
 
+  if (!validSection) return <Navigate to="/vendor/dashboard/income" replace />;
+  const sectionTitle = vendorSections.find(([key]) => key === section)?.[1];
+  const pagedProducts = products.slice((productPage - 1) * 10, productPage * 10);
+  const pagedOrders = orders.slice((orderPage - 1) * 10, orderPage * 10);
+
   return (
     <section className="mx-auto max-w-7xl space-y-6 px-4 py-10">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="text-sm font-bold uppercase tracking-wide text-clay">Vendor</p>
-          <h1 className="text-4xl font-black">Product dashboard</h1>
+          <h1 className="text-4xl font-black">Vendor Dashboard</h1>
         </div>
-        <button className="btn-primary" onClick={() => { setEditing(null); setShowForm((value) => !value); }} type="button">
+        {section === "products" && <button className="btn-primary" onClick={() => { setEditing(null); setShowForm((value) => !value); }} type="button">
           <Plus size={18} /> Add product
-        </button>
+        </button>}
       </div>
       {message && <p className="rounded-md bg-clay/10 p-3 text-sm text-clay">{message}</p>}
-      {(showForm || editing) && <div className="scroll-mt-24" ref={productFormRef}><ProductForm initialProduct={editing} onSubmit={submitProduct} submitLabel={editing ? "Update product" : "Submit product"} /></div>}
-      <div className="space-y-4">
+      <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
+        <aside><nav aria-label="Vendor dashboard sections" className="flex gap-2 overflow-x-auto rounded-xl border border-neutral-200 bg-white p-2 dark:border-neutral-800 dark:bg-neutral-900 lg:sticky lg:top-24 lg:flex-col">{vendorSections.map(([key, label, Icon]) => <NavLink className={({ isActive }) => `flex shrink-0 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-bold transition ${isActive ? "bg-clay text-white" : "hover:bg-neutral-100 dark:hover:bg-neutral-800"}`} key={key} to={`/vendor/dashboard/${key}`}><Icon size={17} />{label}</NavLink>)}</nav></aside>
+        <main className="min-w-0 space-y-5">
+          <div><p className="text-sm font-bold uppercase tracking-wide text-clay">Dashboard section</p><h2 className="text-3xl font-black">{sectionTitle}</h2></div>
+      {section === "products" && (showForm || editing) && <div className="scroll-mt-24" ref={productFormRef}><ProductForm initialProduct={editing} onSubmit={submitProduct} submitLabel={editing ? "Update product" : "Submit product"} /></div>}
+      {section === "income" && <div className="space-y-4">
         <div>
           <p className="text-sm font-bold uppercase tracking-wide text-clay">Income</p>
           <h2 className="text-2xl font-black">Delivered sales</h2>
@@ -163,14 +187,17 @@ export function VendorDashboard() {
             <p className="mt-3 text-sm text-neutral-500">No delivered income yet.</p>
           )}
         </div>
-      </div>
-      <VendorProductTable products={products} onEdit={beginEditProduct} onDelete={requestDeleteProduct} />
-      <div className="space-y-4">
+      </div>}
+      {section === "products" && <div><VendorProductTable products={pagedProducts} onEdit={beginEditProduct} onDelete={requestDeleteProduct} /><Pagination page={productPage} total={products.length} onChange={setProductPage} /></div>}
+      {section === "orders" && <div className="space-y-4">
         <div>
           <p className="text-sm font-bold uppercase tracking-wide text-clay">Delivery</p>
           <h2 className="text-2xl font-black">Orders for your products</h2>
         </div>
-        <VendorOrderTable orders={orders} onStatusChange={updateOrderStatus} />
+        <VendorOrderTable orders={pagedOrders} onStatusChange={updateOrderStatus} />
+        <Pagination page={orderPage} total={orders.length} onChange={setOrderPage} />
+      </div>}
+        </main>
       </div>
       {deletingProduct && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4 backdrop-blur-sm">

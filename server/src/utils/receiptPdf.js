@@ -150,3 +150,39 @@ export function createOrderReceiptPdf(order) {
     doc.end();
   });
 }
+
+export function createReturnReceiptPdf(order) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: "A4", margin: 50, info: { Title: `VASTRA return confirmation ${order.id}` } });
+    const chunks = [];
+    doc.on("data", (chunk) => chunks.push(chunk));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+
+    doc.font("Helvetica-Bold").fontSize(28).fillColor(ink).text("Return confirmation");
+    if (fs.existsSync(logoPath)) doc.image(logoPath, 475, 42, { fit: [70, 70] });
+    doc.moveDown(1.5);
+    doc.font("Helvetica").fontSize(10).fillColor(muted);
+    doc.text(`Order ID: ${order.id}`);
+    doc.text(`Return date: ${formatReceiptDate(order.returnProcessedAt || order.returnRequestedAt || new Date())}`);
+    doc.text(`Return status: ${String(order.returnStatus || "completed").toUpperCase()}`);
+    doc.moveDown(1.5);
+
+    let y = drawTableHeader(doc, doc.y);
+    (order.items || []).forEach((item) => {
+      if (y > doc.page.height - 120) {
+        doc.addPage();
+        y = drawTableHeader(doc, 50);
+      }
+      const amount = Number(item.priceAtPurchase) * Number(item.quantity);
+      doc.font("Helvetica").fontSize(9).fillColor(ink).text(item.name, left, y, { width: 255 });
+      doc.text(String(item.quantity), 320, y, { width: 45, align: "right" });
+      doc.text(formatCurrency(item.priceAtPurchase), 375, y, { width: 78, align: "right" });
+      doc.text(formatCurrency(amount), 465, y, { width: 80, align: "right" });
+      y += 32;
+    });
+    doc.font("Helvetica-Bold").fontSize(12).text(`Refund amount: ${formatCurrency(order.totalAmount)}`, left, y + 10, { width: right - left, align: "right" });
+    doc.font("Helvetica").fontSize(9).fillColor(muted).text("This document confirms that VASTRA accepted the return shown above.", left, y + 65, { width: right - left, align: "center" });
+    doc.end();
+  });
+}

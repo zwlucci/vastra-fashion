@@ -9,6 +9,9 @@ function mapNotification(row) {
     title: row.title,
     message: row.message,
     metadata: row.metadata || {},
+    targetType: row.metadata?.targetType || null,
+    targetId: row.metadata?.targetId || row.order_id || null,
+    targetUrl: row.metadata?.targetUrl || null,
     read: Boolean(row.read_at),
     readAt: row.read_at,
     createdAt: row.created_at

@@ -1,6 +1,6 @@
 import { query, withTransaction } from "../config/db.js";
 import { AppError, notFound } from "../utils/errors.js";
-import { sendOrderReceiptEmail, sendOrderStatusEmail } from "../utils/mailer.js";
+import { sendOrderConfirmationEmail, sendOrderReceiptEmail, sendOrderStatusEmail, sendReturnReceiptEmail } from "../utils/mailer.js";
 import { emitCartStockInvalidated, emitOrderUpdated, emitProductUpdated } from "../socket.js";
 import { updateStockAlertState } from "./productController.js";
 import { calculateCouponDiscount, getActiveCoupon } from "../utils/coupons.js";
@@ -34,6 +34,9 @@ function mapOrderRows(rows) {
         returnRequestedAt: row.return_requested_at,
         returnStatus: row.return_status || "none",
         returnReason: row.return_reason || "",
+        returnProcessedAt: row.return_processed_at,
+        receiptSentAt: row.receipt_sent_at,
+        returnReceiptSentAt: row.return_receipt_sent_at,
         createdAt: row.created_at,
         items: []
       });
@@ -72,6 +75,24 @@ async function getOrdersFor(where, params) {
     params
   );
   return mapOrderRows(rows);
+}
+
+async function sendFinalReceiptOnce(orderId, email, detailedOrder) {
+  const claimed = await query(
+    `UPDATE orders SET receipt_dispatch_started_at = NOW()
+     WHERE id = $1 AND receipt_sent_at IS NULL
+       AND (receipt_dispatch_started_at IS NULL OR receipt_dispatch_started_at < NOW() - INTERVAL '15 minutes')
+     RETURNING receipt_dispatch_started_at`,
+    [orderId]
+  );
+  if (!claimed.rows[0]) return;
+  try {
+    await sendOrderReceiptEmail(email, detailedOrder);
+    await query("UPDATE orders SET receipt_sent_at = NOW(), receipt_dispatch_started_at = NULL WHERE id = $1", [orderId]);
+  } catch (error) {
+    await query("UPDATE orders SET receipt_dispatch_started_at = NULL WHERE id = $1", [orderId]);
+    throw error;
+  }
 }
 
 export async function createOrder(req, res) {
@@ -211,7 +232,7 @@ export async function createOrder(req, res) {
         message: `A new order #${detailedOrder.id.slice(0, 8)} has been placed.`,
         metadata: { status: detailedOrder.status }
       }),
-      sendOrderReceiptEmail(detailedOrder.customerEmail, detailedOrder)
+      sendOrderConfirmationEmail(detailedOrder.customerEmail, detailedOrder)
     ]);
   } catch (error) {
     console.error(`[VASTRA order confirmation] ${error.message}`);
@@ -318,10 +339,10 @@ async function applyOrderStatusUpdate({ orderId, status, explanation, actor }) {
       if (!ownership.rows[0]) throw notFound("Order not found or not owned by vendor");
     }
 
+    if (order.status === status) return { order, changed: false };
     if (["delivered", "cancelled"].includes(order.status)) {
       throw new AppError(`This order is finalized as ${order.status} and cannot be updated.`, 409);
     }
-    if (order.status === status) return { order, changed: false };
 
     const updated = await client.query(
       `UPDATE orders
@@ -354,7 +375,11 @@ async function applyOrderStatusUpdate({ orderId, status, explanation, actor }) {
     });
 
     try {
-      await sendOrderStatusEmail(result.order.customer_email, { ...detailedOrder, status, explanation });
+      if (status === "delivered") {
+        await sendFinalReceiptOnce(orderId, result.order.customer_email, { ...detailedOrder, status, explanation });
+      } else {
+        await sendOrderStatusEmail(result.order.customer_email, { ...detailedOrder, status, explanation });
+      }
     } catch (error) {
       console.error(`[VASTRA order status email] ${error.message}`);
     }
@@ -362,7 +387,15 @@ async function applyOrderStatusUpdate({ orderId, status, explanation, actor }) {
     return detailedOrder;
   }
 
-  return (await getOrdersFor("WHERE orders.id = $1", [orderId]))[0];
+  const detailedOrder = (await getOrdersFor("WHERE orders.id = $1", [orderId]))[0];
+  if (detailedOrder.status === "delivered") {
+    try {
+      await sendFinalReceiptOnce(orderId, result.order.customer_email, detailedOrder);
+    } catch (error) {
+      console.error(`[VASTRA order receipt retry] ${error.message}`);
+    }
+  }
+  return detailedOrder;
 }
 
 export async function cancelOrder(req, res) {
@@ -475,6 +508,70 @@ export async function requestOrderReturn(req, res) {
     console.error(`[VASTRA return notification] ${error.message}`);
   }
   res.json({ order: detailedOrder, message: "Return request submitted successfully." });
+}
+
+export async function updateOrderReturnStatus(req, res) {
+  const updated = await withTransaction(async (client) => {
+    const result = await client.query(
+      `SELECT orders.*, users.email AS customer_email
+       FROM orders JOIN users ON users.id = orders.user_id
+       WHERE orders.id = $1 FOR UPDATE OF orders`,
+      [req.params.id]
+    );
+    const order = result.rows[0];
+    if (!order) throw notFound("Order not found");
+    if (order.return_status === "none") throw new AppError("This order has no return request.", 409);
+    if (order.return_status === req.body.status) return { order, customerEmail: order.customer_email, changed: false };
+    if (["rejected", "completed"].includes(order.return_status)) throw new AppError(`This return is already ${order.return_status}.`, 409);
+    if (order.return_status === "approved" && req.body.status !== "completed") throw new AppError("An approved return can only be completed.", 409);
+
+    const saved = await client.query(
+      `UPDATE orders
+       SET return_status = $1,
+           return_processed_at = CASE WHEN $1 IN ('approved', 'completed') THEN NOW() ELSE return_processed_at END,
+           payment_status = CASE WHEN $1 = 'completed' AND payment_status = 'paid' THEN 'refunded' ELSE payment_status END
+       WHERE id = $2 RETURNING *`,
+      [req.body.status, order.id]
+    );
+    return { order: saved.rows[0], customerEmail: order.customer_email, changed: true };
+  });
+
+  const detailedOrder = (await getOrdersFor("WHERE orders.id = $1", [req.params.id]))[0];
+  const vendors = await query(
+    `SELECT DISTINCT products.vendor_id FROM order_items
+     JOIN products ON products.id = order_items.product_id WHERE order_items.order_id = $1`,
+    [req.params.id]
+  );
+  if (updated.changed) {
+    await createOrderNotifications([detailedOrder.userId, ...vendors.rows.map((row) => row.vendor_id)], {
+      orderId: detailedOrder.id,
+      type: "return_updated",
+      title: "Return status updated",
+      message: `The return for order #${detailedOrder.id.slice(0, 8)} is now ${detailedOrder.returnStatus}.`,
+      metadata: { returnStatus: detailedOrder.returnStatus }
+    });
+  }
+
+  if (["approved", "completed"].includes(detailedOrder.returnStatus)) {
+    const claimed = await query(
+      `UPDATE orders SET return_receipt_dispatch_started_at = NOW()
+       WHERE id = $1 AND return_receipt_sent_at IS NULL
+         AND (return_receipt_dispatch_started_at IS NULL OR return_receipt_dispatch_started_at < NOW() - INTERVAL '15 minutes')
+       RETURNING return_receipt_dispatch_started_at`,
+      [detailedOrder.id]
+    );
+    if (claimed.rows[0]) {
+      try {
+        await sendReturnReceiptEmail(updated.customerEmail, detailedOrder);
+        await query("UPDATE orders SET return_receipt_sent_at = NOW(), return_receipt_dispatch_started_at = NULL WHERE id = $1", [detailedOrder.id]);
+      } catch (error) {
+        await query("UPDATE orders SET return_receipt_dispatch_started_at = NULL WHERE id = $1", [detailedOrder.id]);
+        console.error(`[VASTRA return receipt] ${error.message}`);
+      }
+    }
+  }
+  emitOrderUpdated(detailedOrder, vendors.rows.map((row) => row.vendor_id));
+  res.json({ order: detailedOrder, message: `Return marked ${detailedOrder.returnStatus}.` });
 }
 
 export async function updateOrderStatus(req, res) {

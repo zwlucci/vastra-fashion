@@ -41,6 +41,18 @@ export function Orders() {
     }
   }
 
+  async function updateReturnStatus(orderId, status) {
+    setError("");
+    setSuccess("");
+    try {
+      const { data } = await api.patch(`/admin/orders/${orderId}/return-status`, { status });
+      setSuccess(data.message);
+      await loadOrders();
+    } catch (err) {
+      setError(getErrorMessage(err));
+    }
+  }
+
   async function runOrderAction(orderId, action) {
     setError("");
     setSuccess("");
@@ -65,7 +77,7 @@ export function Orders() {
       </div>
       {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-200">{error}</p>}
       {success && <p className="rounded-md bg-clay/10 p-3 text-sm font-semibold text-clay">{success}</p>}
-      {loading ? <p>Loading orders...</p> : <OrderTable orders={orders} onStatusChange={user.role === "admin" ? updateStatus : undefined} onCancel={user.role === "user" ? (id) => runOrderAction(id, "cancel") : undefined} onReturn={user.role === "user" ? (id) => runOrderAction(id, "return") : undefined} actingOrderId={actingOrderId} />}
+      {loading ? <p>Loading orders...</p> : <OrderTable orders={orders} onStatusChange={user.role === "admin" ? updateStatus : undefined} onReturnStatusChange={user.role === "admin" ? updateReturnStatus : undefined} onCancel={user.role === "user" ? (id) => runOrderAction(id, "cancel") : undefined} onReturn={user.role === "user" ? (id) => runOrderAction(id, "return") : undefined} actingOrderId={actingOrderId} />}
     </section>
   );
 }
