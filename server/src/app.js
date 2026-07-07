@@ -27,11 +27,39 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const app = express();
 const uploadsDir = path.resolve(__dirname, "../uploads");
 const uploadFolders = new Set(["products", "profiles", "wardrobe"]);
+const frontendPort = String(process.env.FRONTEND_PORT || "5173");
 export const allowedOrigins = new Set([
   process.env.CLIENT_URL,
+  ...(process.env.CLIENT_URLS || "").split(",").map((origin) => origin.trim()),
   "http://127.0.0.1:5173",
   "http://localhost:5173"
 ].filter(Boolean));
+
+function isPrivateNetworkHostname(hostname) {
+  const parts = hostname.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return false;
+  }
+
+  return parts[0] === 10
+    || (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31)
+    || (parts[0] === 192 && parts[1] === 168);
+}
+
+export function corsOrigin(origin, callback) {
+  if (!origin || allowedOrigins.has(origin)) return callback(null, true);
+
+  try {
+    const url = new URL(origin);
+    if (url.protocol === "http:" && url.port === frontendPort && isPrivateNetworkHostname(url.hostname)) {
+      return callback(null, true);
+    }
+  } catch {
+    // Invalid origins are rejected below.
+  }
+
+  return callback(new Error(`CORS blocked origin: ${origin}`));
+}
 
 app.use(
   helmet({
@@ -40,12 +68,7 @@ app.use(
 );
 app.use(
   cors({
-    origin(origin, callback) {
-      if (!origin || allowedOrigins.has(origin)) {
-        return callback(null, true);
-      }
-      return callback(new Error(`CORS blocked origin: ${origin}`));
-    },
+    origin: corsOrigin,
     credentials: true
   })
 );
@@ -81,7 +104,7 @@ app.get("/", (_req, res) => {
     message: "VASTRA API is running",
     health: "/api/health",
     apiBase: "/api",
-    frontend: process.env.CLIENT_URL || "http://127.0.0.1:5173"
+    frontend: process.env.CLIENT_URL || `http://localhost:${frontendPort}`
   });
 });
 

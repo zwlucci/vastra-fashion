@@ -28,9 +28,12 @@ Create or edit `server\.env`:
 ```env
 DATABASE_URL=postgres://USER:PASSWORD@HOST:PORT/DATABASE
 JWT_SECRET=replace-this-with-a-long-random-secret
+HOST=0.0.0.0
 PORT=5000
-CLIENT_URL=http://127.0.0.1:5173
-SERVER_PUBLIC_URL=http://127.0.0.1:5000
+FRONTEND_PORT=5173
+CLIENT_URL=http://localhost:5173
+CLIENT_URLS=
+SERVER_PUBLIC_URL=http://localhost:5000
 EMAIL_HOST=smtp.gmail.com
 EMAIL_PORT=465
 EMAIL_SECURE=true
@@ -45,8 +48,12 @@ Order emails build product image URLs from `SERVER_PUBLIC_URL`. When emails are 
 Create or edit `client\.env`:
 
 ```env
-VITE_API_URL=http://127.0.0.1:5000/api
+# Optional: leave blank to use the hostname that opened the frontend.
+VITE_API_URL=
+VITE_API_PORT=5000
 ```
+
+Copy `client\.env.example` and `server\.env.example` for complete local-development examples.
 
 ## Database
 
@@ -108,6 +115,19 @@ Or run both:
 ```powershell
 pnpm dev
 ```
+
+## Same-Wi-Fi Device Access
+
+The development servers use HTTP and listen on all local network interfaces. Localhost continues to work on the laptop.
+
+1. Connect the laptop and the other phone/laptop to the same Wi-Fi network.
+2. In Windows PowerShell, run `ipconfig` and find the laptop's **IPv4 Address** under the active Wi-Fi adapter (for example, `192.168.1.25`).
+3. Start both servers with `pnpm dev`, or use `pnpm dev:server` and `pnpm dev:client` in separate terminals.
+4. On the other device, open `http://<laptop-local-ip>:5173`, for example `http://192.168.1.25:5173`.
+
+The frontend automatically calls `http://<laptop-local-ip>:5000/api` when it was opened through the laptop's private IP, including when a local `.env` still contains a loopback API URL. To use a different backend, set `VITE_API_URL` explicitly. If the frontend port changes, set `FRONTEND_PORT` on the server to match; additional exact origins can be listed in `CLIENT_URLS` separated by commas.
+
+When Windows asks, allow Node.js through Windows Defender Firewall on **Private networks**. If the prompt does not appear, allow inbound TCP ports `5173` and `5000` for private networks. Do not expose these development servers to public or untrusted networks.
 
 ## API Summary
 
