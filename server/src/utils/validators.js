@@ -221,6 +221,10 @@ export const orderStatusSchema = z.object({
   explanation: z.string().trim().max(500).optional().default("")
 });
 
+export const orderReturnStatusSchema = z.object({
+  status: z.enum(["approved", "rejected", "completed"])
+});
+
 export const roleSchema = z.object({
   role: z.enum(["user", "vendor", "admin"])
 });

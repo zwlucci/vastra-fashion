@@ -1,4 +1,4 @@
-export const BACKUP_VERSION = 3;
+export const BACKUP_VERSION = 4;
 
 // Parent tables must appear before tables that reference them.
 export const TABLE_ORDER = [
@@ -12,10 +12,13 @@ export const TABLE_ORDER = [
   "wardrobe_items",
   "wardrobe_combos",
   "home_collection_products",
+  "coupons",
   "orders",
   "order_items",
+  "order_notifications",
   "message_conversations",
   "conversation_archives",
+  "conversation_deletions",
   "conversation_messages",
   "reviews",
   "product_reviews",

@@ -40,10 +40,10 @@ async function orderNotificationCountFor(userId) {
   return rows[0].count;
 }
 
-export function initSocket(server, allowedOrigins) {
+export function initSocket(server, corsOrigin) {
   io = new Server(server, {
     cors: {
-      origin: [...allowedOrigins],
+      origin: corsOrigin,
       credentials: true
     }
   });

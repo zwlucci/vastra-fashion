@@ -30,6 +30,21 @@ async function listFor(table, targetColumn, targetId) {
   return { reviews: rows.map(mapReview), summary: { averageRating, count } };
 }
 
+async function hasPurchasedProduct(userId, productId) {
+  const { rows } = await query(
+    `SELECT EXISTS (
+       SELECT 1
+       FROM orders
+       JOIN order_items ON order_items.order_id = orders.id
+       WHERE orders.user_id = $1
+         AND order_items.product_id = $2
+         AND orders.status = 'delivered'
+     ) AS purchased`,
+    [userId, productId]
+  );
+  return rows[0].purchased;
+}
+
 export async function listProductReviews(req, res) {
   const product = await query("SELECT id FROM products WHERE id = $1 AND status = 'approved'", [req.params.productId]);
   if (!product.rows[0]) throw notFound("Product not found");
@@ -40,6 +55,9 @@ export async function createProductReview(req, res) {
   const product = await query("SELECT id, vendor_id FROM products WHERE id = $1 AND status = 'approved'", [req.params.productId]);
   if (!product.rows[0]) throw notFound("Product not found");
   if (product.rows[0].vendor_id === req.user.id) throw new AppError("You cannot review your own product", 400);
+  if (!(await hasPurchasedProduct(req.user.id, req.params.productId))) {
+    throw new AppError("You can only review products you have purchased.", 403);
+  }
   try {
     await query(
       "INSERT INTO product_reviews (user_id, product_id, rating, body) VALUES ($1, $2, $3, $4)",
@@ -52,7 +70,22 @@ export async function createProductReview(req, res) {
   res.status(201).json(await listFor("product_reviews", "product_id", req.params.productId));
 }
 
+export async function getProductReviewEligibility(req, res) {
+  const product = await query("SELECT id, vendor_id FROM products WHERE id = $1 AND status = 'approved'", [req.params.productId]);
+  if (!product.rows[0]) throw notFound("Product not found");
+  const purchased = await hasPurchasedProduct(req.user.id, req.params.productId);
+  res.json({ canReview: purchased && product.rows[0].vendor_id !== req.user.id });
+}
+
 export async function updateProductReview(req, res) {
+  const existing = await query(
+    "SELECT product_id FROM product_reviews WHERE id = $1 AND user_id = $2",
+    [req.params.reviewId, req.user.id]
+  );
+  if (!existing.rows[0]) throw notFound("Review not found or not owned by user");
+  if (!(await hasPurchasedProduct(req.user.id, existing.rows[0].product_id))) {
+    throw new AppError("You can only review products you have purchased.", 403);
+  }
   const { rows } = await query(
     "UPDATE product_reviews SET rating = $3, body = $4 WHERE id = $1 AND user_id = $2 RETURNING product_id",
     [req.params.reviewId, req.user.id, req.body.rating, req.body.body]

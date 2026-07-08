@@ -13,13 +13,13 @@ const sortOptions = [
 export function AdminUsersTable({ title = "Users and vendors", users, onPromote, meta, page, setPage, search, setSearch, sort, setSort }) {
 
   return (
-    <div className="panel space-y-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+    <div className="panel min-w-0 space-y-4 overflow-hidden">
+      <div className="space-y-3">
         <div>
           <h2 className="text-2xl font-black">{title}</h2>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Search, sort, and promote approved marketplace sellers.</p>
         </div>
-        <div className="grid gap-2 sm:grid-cols-[minmax(220px,1fr)_180px]">
+        <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,180px)]">
           <label className="relative block">
             <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" size={16} />
             <input
@@ -39,44 +39,20 @@ export function AdminUsersTable({ title = "Users and vendors", users, onPromote,
           </label>
         </div>
       </div>
-      <div className="max-h-[430px] overflow-auto rounded-lg border border-neutral-200 dark:border-neutral-800">
-        <table className="w-full min-w-[720px] text-left text-sm">
-          <thead className="sticky top-0 z-10 bg-neutral-100 text-xs uppercase text-neutral-500 dark:bg-neutral-800">
-            <tr>
-              <th className="px-4 py-3">Name</th>
-              <th className="px-4 py-3">Email</th>
-              <th className="px-4 py-3">Role</th>
-              <th className="px-4 py-3">Joined</th>
-              <th className="w-36 px-4 py-3 text-center">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((user) => (
-              <tr className="border-t border-neutral-200 dark:border-neutral-800" key={user.id}>
-                <td className="px-4 py-3 font-semibold">{user.name}</td>
-                <td className="px-4 py-3">{user.email}</td>
-                <td className="px-4 py-3">{roleLabel(user.role)}</td>
-                <td className="px-4 py-3">{new Date(user.createdAt || user.created_at).toLocaleDateString()}</td>
-                <td className="w-36 px-4 py-3">
-                  <div className="flex justify-center">
-                  {user.role === "user" ? (
-                    <button className="btn-secondary h-9 w-28 px-2" onClick={() => onPromote(user.id)} type="button">
-                      <UserPlus size={16} /> Promote
-                    </button>
-                  ) : (
-                    <span className="inline-flex h-9 w-28 items-center justify-center rounded-md border border-transparent text-sm text-neutral-500 dark:text-neutral-400">No action</span>
-                  )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {!users.length && (
-              <tr>
-                <td className="px-4 py-8 text-center text-neutral-500" colSpan="5">No matching users or vendors.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+      <div className="max-h-[470px] space-y-2 overflow-y-auto pr-1">
+        {users.map((user) => (
+          <article className="min-w-0 rounded-lg border border-neutral-200 p-4 dark:border-neutral-800" key={user.id}>
+            <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2"><h3 className="font-bold">{user.name}</h3><span className="badge bg-neutral-100 dark:bg-neutral-800">{roleLabel(user.role)}</span></div>
+                <p className="mt-1 break-all text-sm text-neutral-500">{user.email}</p>
+                <p className="mt-2 text-xs text-neutral-500">Joined {new Date(user.createdAt || user.created_at).toLocaleDateString()}</p>
+              </div>
+              {user.role === "user" ? <button className="btn-secondary h-9 shrink-0 px-3" onClick={() => onPromote(user.id)} type="button"><UserPlus size={16} /> Promote</button> : <span className="text-xs text-neutral-500">Approved seller</span>}
+            </div>
+          </article>
+        ))}
+        {!users.length && <p className="py-8 text-center text-sm text-neutral-500">No matching users or vendors.</p>}
       </div>
       {meta && (
         <div className="flex flex-wrap items-center justify-between gap-3">

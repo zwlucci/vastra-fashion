@@ -4,6 +4,7 @@ import {
   createVendorReview,
   deleteProductReview,
   deleteVendorReview,
+  getProductReviewEligibility,
   listProductReviews,
   listVendorReviews,
   updateProductReview,
@@ -17,6 +18,7 @@ export const productReviewRoutes = Router();
 export const vendorReviewRoutes = Router();
 
 productReviewRoutes.get("/product/:productId", asyncHandler(listProductReviews));
+productReviewRoutes.get("/product/:productId/eligibility", authenticateUser, asyncHandler(getProductReviewEligibility));
 productReviewRoutes.post("/product/:productId", authenticateUser, validate(entityReviewSchema), asyncHandler(createProductReview));
 productReviewRoutes.put("/:reviewId", authenticateUser, validate(entityReviewSchema), asyncHandler(updateProductReview));
 productReviewRoutes.delete("/:reviewId", authenticateUser, asyncHandler(deleteProductReview));

@@ -103,8 +103,14 @@ export async function register(req, res) {
   const { name, email, password, phoneNumber, dateOfBirth } = req.body;
   const normalizedEmail = email.toLowerCase();
 
-  const existing = await query("SELECT id FROM users WHERE email = $1", [normalizedEmail]);
+  const existing = await query("SELECT id, email_verified FROM users WHERE email = $1", [normalizedEmail]);
   if (existing.rows[0]) {
+    if (!existing.rows[0].email_verified) {
+      return res.json({
+        message: "Account already created. Please verify your email before logging in.",
+        email: normalizedEmail
+      });
+    }
     throw new AppError("Email is already registered", 409);
   }
 

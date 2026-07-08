@@ -39,8 +39,10 @@ export default function App() {
         <Route path="/wardrobe" element={<Wardrobe />} />
         <Route path="/messages" element={<Messages />} />
         <Route path="/orders" element={<ProtectedRoute><Orders /></ProtectedRoute>} />
-        <Route path="/vendor/dashboard" element={<RoleProtectedRoute roles={["vendor"]}><VendorDashboard /></RoleProtectedRoute>} />
-        <Route path="/admin/dashboard" element={<RoleProtectedRoute roles={["admin"]}><AdminDashboard /></RoleProtectedRoute>} />
+        <Route path="/vendor/dashboard" element={<RoleProtectedRoute roles={["vendor"]}><Navigate to="/vendor/dashboard/income" replace /></RoleProtectedRoute>} />
+        <Route path="/vendor/dashboard/:section" element={<RoleProtectedRoute roles={["vendor"]}><VendorDashboard /></RoleProtectedRoute>} />
+        <Route path="/admin/dashboard" element={<RoleProtectedRoute roles={["admin"]}><Navigate to="/admin/dashboard/stat-viewer" replace /></RoleProtectedRoute>} />
+        <Route path="/admin/dashboard/:section" element={<RoleProtectedRoute roles={["admin"]}><AdminDashboard /></RoleProtectedRoute>} />
         <Route path="/admin/wardrobe" element={<RoleProtectedRoute roles={["admin"]}><AdminWardrobe /></RoleProtectedRoute>} />
       </Route>
     </Routes>

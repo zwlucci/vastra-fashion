@@ -5,11 +5,12 @@ import { money, statusClass } from "../utils/format.js";
 
 const statusOptions = ["pending", "processing", "shipped", "delivered", "cancelled"];
 
-export function OrderTable({ orders, onStatusChange, onCancel, onReturn, actingOrderId = "" }) {
+export function OrderTable({ orders, onStatusChange, onReturnStatusChange, onCancel, onReturn, actingOrderId = "" }) {
   const [statusChange, setStatusChange] = useState(null);
   if (!orders.length) return <div className="panel py-10 text-center text-neutral-500">No orders yet.</div>;
   const showStatusActions = Boolean(onStatusChange && orders.some((order) => !["delivered", "cancelled"].includes(order.status)));
   const showUserActions = Boolean(onCancel || onReturn);
+  const showReturnActions = Boolean(onReturnStatusChange && orders.some((order) => ["requested", "approved"].includes(order.returnStatus)));
 
   return (
     <>
@@ -25,6 +26,7 @@ export function OrderTable({ orders, onStatusChange, onCancel, onReturn, actingO
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Payment</th>
               {showStatusActions && <th className="px-4 py-3">Update delivery</th>}
+              {showReturnActions && <th className="px-4 py-3">Manage return</th>}
               {showUserActions && <th className="px-4 py-3">Actions</th>}
               <th className="px-4 py-3">Date</th>
             </tr>
@@ -56,6 +58,7 @@ export function OrderTable({ orders, onStatusChange, onCancel, onReturn, actingO
                     )}
                   </td>
                 )}
+                {showReturnActions && <td className="px-4 py-3">{order.returnStatus === "requested" ? <div className="flex min-w-40 gap-2"><button className="btn-secondary h-9 px-3" onClick={() => onReturnStatusChange(order.id, "approved")} type="button">Approve</button><button className="btn-secondary h-9 px-3 text-red-600" onClick={() => onReturnStatusChange(order.id, "rejected")} type="button">Reject</button></div> : order.returnStatus === "approved" ? <button className="btn-secondary h-9 px-3" onClick={() => onReturnStatusChange(order.id, "completed")} type="button">Complete</button> : null}</td>}
                 {showUserActions && <td className="px-4 py-3">
                   <div className="flex min-w-36 flex-col items-start gap-2">
                     {["pending", "processing"].includes(order.status) && <button className="btn-secondary h-9 px-3" disabled={actingOrderId === order.id} onClick={() => onCancel(order.id)} type="button">Cancel Order</button>}

@@ -18,6 +18,7 @@ export function EntityReviews({ type, entityId, title, canReview = true }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [purchaseEligible, setPurchaseEligible] = useState(type === "product" ? null : true);
   const base = type === "product" ? "/product-reviews" : "/vendor-reviews";
   const targetPath = type === "product" ? `product/${entityId}` : `vendor/${entityId}`;
   const ownReview = useMemo(() => reviews.find((review) => review.user.id === user?.id), [reviews, user?.id]);
@@ -34,6 +35,24 @@ export function EntityReviews({ type, entityId, title, canReview = true }) {
       .catch((err) => setError(getErrorMessage(err)))
       .finally(() => setLoading(false));
   }, [base, targetPath]);
+
+  useEffect(() => {
+    if (type !== "product") {
+      setPurchaseEligible(true);
+      return;
+    }
+    if (!isAuthenticated) {
+      setPurchaseEligible(null);
+      return;
+    }
+    setPurchaseEligible(null);
+    api.get(`${base}/${targetPath}/eligibility`)
+      .then(({ data }) => setPurchaseEligible(Boolean(data.canReview)))
+      .catch((err) => {
+        setPurchaseEligible(false);
+        setError(getErrorMessage(err));
+      });
+  }, [base, isAuthenticated, targetPath, type, user?.id]);
 
   async function submit(event) {
     event.preventDefault();
@@ -87,6 +106,10 @@ export function EntityReviews({ type, entityId, title, canReview = true }) {
         <div className="panel text-center"><p className="text-neutral-500">Login to leave a rating and review.</p><Link className="btn-primary mt-3" to="/login">Login</Link></div>
       ) : !canReview ? (
         <p className="panel text-center text-neutral-500">You cannot review your own {type}.</p>
+      ) : type === "product" && purchaseEligible === null ? (
+        <p className="panel text-center text-neutral-500">Checking purchase eligibility...</p>
+      ) : type === "product" && !purchaseEligible ? (
+        <p className="panel text-center text-neutral-500">You can only review products you have purchased.</p>
       ) : (!ownReview || editing) && (
         <form className="panel space-y-4" onSubmit={submit}>
           <div className="grid gap-4 sm:grid-cols-[180px_1fr]">
