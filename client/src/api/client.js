@@ -1,25 +1,27 @@
 import axios from "axios";
 
-const browserHostname = typeof window === "undefined" ? "127.0.0.1" : window.location.hostname;
-const apiPort = import.meta.env.VITE_API_PORT || "5000";
-
 function apiBaseUrl() {
   const configuredUrl = import.meta.env.VITE_API_URL?.trim();
-  if (!configuredUrl) return `http://${browserHostname}:${apiPort}/api`;
+  if (!configuredUrl) return "/api";
 
   const url = new URL(configuredUrl);
   const configuredForLoopback = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname);
+  const browserHostname = typeof window === "undefined" ? "127.0.0.1" : window.location.hostname;
   const browserIsRemote = !["localhost", "127.0.0.1", "::1", "[::1]"].includes(browserHostname);
 
   if (configuredForLoopback && browserIsRemote) {
-    url.hostname = browserHostname;
+    // A remote device's loopback address is not this computer. Vite proxies the
+    // API, uploads, and Socket.IO through the frontend's same origin instead.
+    return "/api";
   }
 
   return url.toString().replace(/\/$/, "");
 }
 
 export const API_BASE_URL = apiBaseUrl();
-export const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "");
+export const API_ORIGIN = API_BASE_URL.startsWith("/")
+  ? (typeof window === "undefined" ? "" : window.location.origin)
+  : API_BASE_URL.replace(/\/api\/?$/, "");
 
 export const api = axios.create({
   baseURL: API_BASE_URL
