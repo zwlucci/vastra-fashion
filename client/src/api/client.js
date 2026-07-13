@@ -1,6 +1,24 @@
 import axios from "axios";
 
-export const API_BASE_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:5000/api";
+const browserHostname = typeof window === "undefined" ? "127.0.0.1" : window.location.hostname;
+const apiPort = import.meta.env.VITE_API_PORT || "5000";
+
+function apiBaseUrl() {
+  const configuredUrl = import.meta.env.VITE_API_URL?.trim();
+  if (!configuredUrl) return `http://${browserHostname}:${apiPort}/api`;
+
+  const url = new URL(configuredUrl);
+  const configuredForLoopback = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname);
+  const browserIsRemote = !["localhost", "127.0.0.1", "::1", "[::1]"].includes(browserHostname);
+
+  if (configuredForLoopback && browserIsRemote) {
+    url.hostname = browserHostname;
+  }
+
+  return url.toString().replace(/\/$/, "");
+}
+
+export const API_BASE_URL = apiBaseUrl();
 export const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "");
 
 export const api = axios.create({

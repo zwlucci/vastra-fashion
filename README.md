@@ -28,9 +28,12 @@ Create or edit `server\.env`:
 ```env
 DATABASE_URL=postgres://USER:PASSWORD@HOST:PORT/DATABASE
 JWT_SECRET=replace-this-with-a-long-random-secret
+HOST=0.0.0.0
 PORT=5000
-CLIENT_URL=http://127.0.0.1:5173
-SERVER_PUBLIC_URL=http://127.0.0.1:5000
+FRONTEND_PORT=5173
+CLIENT_URL=http://localhost:5173
+CLIENT_URLS=
+SERVER_PUBLIC_URL=http://localhost:5000
 EMAIL_HOST=smtp.gmail.com
 EMAIL_PORT=465
 EMAIL_SECURE=true
@@ -45,8 +48,12 @@ Order emails build product image URLs from `SERVER_PUBLIC_URL`. When emails are 
 Create or edit `client\.env`:
 
 ```env
-VITE_API_URL=http://127.0.0.1:5000/api
+# Optional: leave blank to use the hostname that opened the frontend.
+VITE_API_URL=
+VITE_API_PORT=5000
 ```
+
+Copy `client\.env.example` and `server\.env.example` for complete local-development examples.
 
 ## Database
 
@@ -108,6 +115,25 @@ Or run both:
 ```powershell
 pnpm dev
 ```
+
+## Same-Router Ethernet and Wi-Fi Access
+
+The development servers use HTTP and listen on all local network interfaces. The laptop can be connected by Ethernet while the phone uses Wi-Fi, provided both connections reach the same router and local network. Localhost continues to work on the laptop.
+
+1. On the Ethernet-connected Windows laptop, run `ipconfig`.
+2. Under **Ethernet adapter Ethernet**, copy the **IPv4 Address** (for example, `192.168.1.25`). Do not use a disconnected adapter, virtual adapter, or Wi-Fi address when the laptop is using Ethernet.
+3. For an explicit backend address, set `VITE_API_URL=http://192.168.1.25:5000/api` in `client\.env`, replacing the example IP with the Ethernet IPv4. Add `http://192.168.1.25:5173` to `CLIENT_URLS` in `server\.env` if you want an explicit CORS origin; private-LAN origins on `FRONTEND_PORT` are also accepted automatically.
+4. Start both servers with `pnpm dev`, or use `pnpm dev:server` and `pnpm dev:client` in separate terminals. Vite prints the frontend **Local** and **Network** URLs; the backend prints its local and network URLs.
+5. Confirm `http://localhost:5173` and `http://192.168.1.25:5173` on the laptop, then open `http://192.168.1.25:5173` on the phone.
+
+Use `http://`, not `https://`, unless local HTTPS certificates have been configured for both servers. The frontend automatically substitutes the Ethernet/LAN hostname when it is opened remotely and a local `.env` still contains a loopback API URL. If the frontend port changes, set `FRONTEND_PORT` on the server to match; additional exact origins can be listed in `CLIENT_URLS` separated by commas.
+
+If the phone still times out:
+
+- Allow Node.js through Windows Defender Firewall on **Private networks**. If needed, allow inbound TCP ports `5173` and `5000` for private networks.
+- Use the router's normal Wi-Fi, not guest Wi-Fi. Guest networks commonly block access to Ethernet devices.
+- Disable **AP isolation**, **client isolation**, or **wireless isolation** in the router settings if enabled.
+- Confirm the Ethernet and Wi-Fi devices receive addresses on the same local subnet and can communicate. Do not expose these development servers to public or untrusted networks.
 
 ## API Summary
 
