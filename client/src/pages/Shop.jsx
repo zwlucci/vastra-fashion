@@ -57,6 +57,7 @@ export function Shop() {
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [productsPerPage, setProductsPerPage] = useState(getProductsPerPage);
+  const genderParam = searchParams.get("gender") || "";
 
   const query = useMemo(() => {
     const params = new URLSearchParams();
@@ -91,6 +92,10 @@ export function Shop() {
   useEffect(() => {
     setCurrentPage(1);
   }, [query]);
+
+  useEffect(() => {
+    setFilters((current) => current.gender === genderParam ? current : { ...current, gender: genderParam });
+  }, [genderParam]);
 
   useEffect(() => {
     function handleResize() {

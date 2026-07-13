@@ -2,6 +2,7 @@ import { Router } from "express";
 import { getStats, listUsers, updateUserRole } from "../controllers/adminController.js";
 import { listContactMessages } from "../controllers/contactController.js";
 import { openContactConversation } from "../controllers/messageController.js";
+import { getNewsletterAdmin, sendNewsletterBroadcast, sendNewsletterTest } from "../controllers/newsletterController.js";
 import { listAllOrders, updateOrderReturnStatus, updateOrderStatus } from "../controllers/orderController.js";
 import { listAdminProducts, setProductStatus, updateProduct } from "../controllers/productController.js";
 import { listAdminReviews, setReviewPinned } from "../controllers/reviewController.js";
@@ -10,13 +11,16 @@ import { listWardrobeProducts, updateWardrobeProduct } from "../controllers/ward
 import { createCoupon, disableCoupon, listCoupons, updateCoupon } from "../controllers/couponController.js";
 import { authenticateUser, requireAdmin } from "../middleware/auth.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { couponSchema, couponToggleSchema, orderReturnStatusSchema, orderStatusSchema, productDecisionSchema, productSchema, reviewPinSchema, roleSchema, validate, wardrobeAdminSchema } from "../utils/validators.js";
+import { couponSchema, couponToggleSchema, newsletterBroadcastSchema, newsletterTestSchema, orderReturnStatusSchema, orderStatusSchema, productDecisionSchema, productSchema, reviewPinSchema, roleSchema, validate, wardrobeAdminSchema } from "../utils/validators.js";
 
 export const adminRoutes = Router();
 
 adminRoutes.use(authenticateUser, requireAdmin);
 
 adminRoutes.get("/stats", asyncHandler(getStats));
+adminRoutes.get("/newsletter", asyncHandler(getNewsletterAdmin));
+adminRoutes.post("/newsletter/test", validate(newsletterTestSchema), asyncHandler(sendNewsletterTest));
+adminRoutes.post("/newsletter/broadcast", validate(newsletterBroadcastSchema), asyncHandler(sendNewsletterBroadcast));
 adminRoutes.get("/coupons", asyncHandler(listCoupons));
 adminRoutes.post("/coupons", validate(couponSchema), asyncHandler(createCoupon));
 adminRoutes.patch("/coupons/:id", validate(couponToggleSchema), asyncHandler(updateCoupon));

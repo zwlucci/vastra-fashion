@@ -43,6 +43,15 @@ function escapeHtml(value) {
   })[character]);
 }
 
+function newsletterMessageHtml(message) {
+  return escapeHtml(message)
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+    .map((paragraph) => `<p style="line-height:1.7;margin:0 0 16px">${paragraph.replace(/\n/g, "<br>")}</p>`)
+    .join("");
+}
+
 export function resolveProductImagePath(value) {
   let imagePath = String(value || "").trim();
   if (!imagePath) return "";
@@ -149,6 +158,52 @@ function emailShell({ title, badge, body, order, imageSources = [] }) {
       <div style="margin-top:20px;padding:16px;background:#faf7f4;border-radius:10px">${summaryRows}<div style="padding-top:8px;border-top:1px solid #e5e5e5"><strong>Grand total</strong><span style="float:right;font-weight:800">${escapeHtml(formatCurrency(order.totalAmount))}</span></div></div>
       <p style="margin-top:24px;color:#737373;font-size:13px">Thank you for choosing VASTRA.</p></div>
     </div></body></html>`;
+}
+
+export function buildNewsletterEmail({ heading, message, ctaText = "", ctaUrl = "", unsubscribeUrl = "" }) {
+  const safeCta = ctaText && ctaUrl
+    ? `<p style="margin:26px 0 8px"><a href="${escapeHtml(ctaUrl)}" style="display:inline-block;background:#171717;color:#fff;text-decoration:none;border-radius:8px;padding:12px 18px;font-weight:700">${escapeHtml(ctaText)}</a></p>`
+    : "";
+  const unsubscribe = unsubscribeUrl
+    ? `<p style="margin:24px 0 0;color:#737373;font-size:12px;line-height:1.5">You are receiving this because you subscribed to VASTRA updates. <a href="${escapeHtml(unsubscribeUrl)}" style="color:#8a4f33">Unsubscribe</a></p>`
+    : `<p style="margin:24px 0 0;color:#737373;font-size:12px;line-height:1.5">You are receiving this because you subscribed to VASTRA updates.</p>`;
+
+  const html = `<!doctype html><html><body style="margin:0;background:#f5f1eb;font-family:Arial,sans-serif;color:#171717">
+    <div style="max-width:640px;margin:24px auto;background:#fff;border-radius:14px;overflow:hidden;border:1px solid #e5e5e5">
+      <div style="background:#171717;color:#fff;padding:22px 28px"><div style="font-size:25px;font-weight:800;letter-spacing:3px">VASTRA</div><div style="margin-top:5px;color:#e5e5e5;font-size:13px">Curated style notes</div></div>
+      <div style="padding:28px">
+        <span style="display:inline-block;background:#f1e3da;color:#8a4f33;border-radius:999px;padding:6px 10px;font-size:12px;font-weight:700;text-transform:uppercase">Newsletter</span>
+        <h1 style="font-size:26px;margin:16px 0 14px;line-height:1.2">${escapeHtml(heading)}</h1>
+        ${newsletterMessageHtml(message)}
+        ${safeCta}
+        ${unsubscribe}
+      </div>
+    </div>
+  </body></html>`;
+
+  const text = [
+    heading,
+    "",
+    message,
+    ctaText && ctaUrl ? ["", `${ctaText}: ${ctaUrl}`].join("\n") : "",
+    unsubscribeUrl ? ["", `Unsubscribe: ${unsubscribeUrl}`].join("\n") : ""
+  ].filter(Boolean).join("\n");
+
+  return { html, text };
+}
+
+export async function sendNewsletterEmail(to, payload) {
+  const config = getMailConfig();
+  const transporter = transporterFor(config);
+  const { html, text } = buildNewsletterEmail(payload);
+
+  await transporter.sendMail({
+    from: config.from,
+    to,
+    subject: payload.subject,
+    text,
+    html
+  });
 }
 
 export async function sendVerificationEmail(to, otp) {
