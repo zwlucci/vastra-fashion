@@ -168,6 +168,54 @@ export const contactSchema = z.object({
   message: z.string().min(5)
 });
 
+export const newsletterSubscribeSchema = z.object({
+  email: z.string().trim().toLowerCase().email("Enter a valid email address")
+});
+
+export const newsletterUnsubscribeSchema = z.object({
+  token: z.string().trim().min(20, "Unsubscribe link is invalid")
+});
+
+export const newsletterPreferenceSchema = z.object({
+  enabled: z.boolean()
+});
+
+function safeOptionalUrl(value, context) {
+  if (!value) return;
+  try {
+    const url = new URL(value);
+    if (!["http:", "https:"].includes(url.protocol)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "Use a safe http or https URL", path: ["ctaUrl"] });
+    }
+  } catch {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Enter a valid URL", path: ["ctaUrl"] });
+  }
+}
+
+const newsletterBroadcastBaseSchema = z.object({
+  subject: z.string().trim().min(3).max(160),
+  heading: z.string().trim().min(3).max(160),
+  message: z.string().trim().min(5).max(8000),
+  ctaText: z.string().trim().max(80).optional().default(""),
+  ctaUrl: z.string().trim().max(500).optional().default("")
+});
+
+export const newsletterBroadcastSchema = newsletterBroadcastBaseSchema.superRefine((data, context) => {
+  safeOptionalUrl(data.ctaUrl, context);
+  if (data.ctaUrl && !data.ctaText) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Add button text for the CTA URL", path: ["ctaText"] });
+  }
+});
+
+export const newsletterTestSchema = newsletterBroadcastBaseSchema.extend({
+  testEmail: z.string().trim().toLowerCase().email("Enter a valid test email")
+}).superRefine((data, context) => {
+  safeOptionalUrl(data.ctaUrl, context);
+  if (data.ctaUrl && !data.ctaText) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Add button text for the CTA URL", path: ["ctaText"] });
+  }
+});
+
 export const checkoutSchema = z.object({
   paymentMethod: z.enum(["card", "cod"]),
   fullName: z.string().trim().min(2).max(100),

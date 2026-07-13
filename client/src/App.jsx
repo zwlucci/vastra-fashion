@@ -10,6 +10,7 @@ import { Contact } from "./pages/Contact.jsx";
 import { Home } from "./pages/Home.jsx";
 import { Login } from "./pages/Login.jsx";
 import { Messages } from "./pages/Messages.jsx";
+import { NewsletterUnsubscribe } from "./pages/NewsletterUnsubscribe.jsx";
 import { Orders } from "./pages/Orders.jsx";
 import { ProductDetail } from "./pages/ProductDetail.jsx";
 import { Register } from "./pages/Register.jsx";
@@ -32,6 +33,7 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
+        <Route path="/newsletter/unsubscribe" element={<NewsletterUnsubscribe />} />
         <Route path="/profile" element={<Account />} />
         <Route path="/account" element={<Navigate to="/profile" replace />} />
         <Route path="/cart" element={<Cart />} />
