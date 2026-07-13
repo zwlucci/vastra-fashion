@@ -116,18 +116,24 @@ Or run both:
 pnpm dev
 ```
 
-## Same-Wi-Fi Device Access
+## Same-Router Ethernet and Wi-Fi Access
 
-The development servers use HTTP and listen on all local network interfaces. Localhost continues to work on the laptop.
+The development servers use HTTP and listen on all local network interfaces. The laptop can be connected by Ethernet while the phone uses Wi-Fi, provided both connections reach the same router and local network. Localhost continues to work on the laptop.
 
-1. Connect the laptop and the other phone/laptop to the same Wi-Fi network.
-2. In Windows PowerShell, run `ipconfig` and find the laptop's **IPv4 Address** under the active Wi-Fi adapter (for example, `192.168.1.25`).
-3. Start both servers with `pnpm dev`, or use `pnpm dev:server` and `pnpm dev:client` in separate terminals.
-4. On the other device, open `http://<laptop-local-ip>:5173`, for example `http://192.168.1.25:5173`.
+1. On the Ethernet-connected Windows laptop, run `ipconfig`.
+2. Under **Ethernet adapter Ethernet**, copy the **IPv4 Address** (for example, `192.168.1.25`). Do not use a disconnected adapter, virtual adapter, or Wi-Fi address when the laptop is using Ethernet.
+3. For an explicit backend address, set `VITE_API_URL=http://192.168.1.25:5000/api` in `client\.env`, replacing the example IP with the Ethernet IPv4. Add `http://192.168.1.25:5173` to `CLIENT_URLS` in `server\.env` if you want an explicit CORS origin; private-LAN origins on `FRONTEND_PORT` are also accepted automatically.
+4. Start both servers with `pnpm dev`, or use `pnpm dev:server` and `pnpm dev:client` in separate terminals. Vite prints the frontend **Local** and **Network** URLs; the backend prints its local and network URLs.
+5. Confirm `http://localhost:5173` and `http://192.168.1.25:5173` on the laptop, then open `http://192.168.1.25:5173` on the phone.
 
-The frontend automatically calls `http://<laptop-local-ip>:5000/api` when it was opened through the laptop's private IP, including when a local `.env` still contains a loopback API URL. To use a different backend, set `VITE_API_URL` explicitly. If the frontend port changes, set `FRONTEND_PORT` on the server to match; additional exact origins can be listed in `CLIENT_URLS` separated by commas.
+Use `http://`, not `https://`, unless local HTTPS certificates have been configured for both servers. The frontend automatically substitutes the Ethernet/LAN hostname when it is opened remotely and a local `.env` still contains a loopback API URL. If the frontend port changes, set `FRONTEND_PORT` on the server to match; additional exact origins can be listed in `CLIENT_URLS` separated by commas.
 
-When Windows asks, allow Node.js through Windows Defender Firewall on **Private networks**. If the prompt does not appear, allow inbound TCP ports `5173` and `5000` for private networks. Do not expose these development servers to public or untrusted networks.
+If the phone still times out:
+
+- Allow Node.js through Windows Defender Firewall on **Private networks**. If needed, allow inbound TCP ports `5173` and `5000` for private networks.
+- Use the router's normal Wi-Fi, not guest Wi-Fi. Guest networks commonly block access to Ethernet devices.
+- Disable **AP isolation**, **client isolation**, or **wireless isolation** in the router settings if enabled.
+- Confirm the Ethernet and Wi-Fi devices receive addresses on the same local subnet and can communicate. Do not expose these development servers to public or untrusted networks.
 
 ## API Summary
 

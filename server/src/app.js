@@ -31,8 +31,8 @@ const frontendPort = String(process.env.FRONTEND_PORT || "5173");
 export const allowedOrigins = new Set([
   process.env.CLIENT_URL,
   ...(process.env.CLIENT_URLS || "").split(",").map((origin) => origin.trim()),
-  "http://127.0.0.1:5173",
-  "http://localhost:5173"
+  `http://127.0.0.1:${frontendPort}`,
+  `http://localhost:${frontendPort}`
 ].filter(Boolean));
 
 function isPrivateNetworkHostname(hostname) {
