@@ -4,7 +4,7 @@ export function errorHandler(error, _req, res, _next) {
     console.error(error);
   }
   res.status(statusCode).json({
-    message: error.message || "Internal server error"
+    message: statusCode >= 500 ? "Internal server error" : (error.message || "Internal server error")
   });
 }
 

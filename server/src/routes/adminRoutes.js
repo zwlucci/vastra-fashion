@@ -2,7 +2,7 @@ import { Router } from "express";
 import { getStats, listUsers, updateUserRole } from "../controllers/adminController.js";
 import { listContactMessages } from "../controllers/contactController.js";
 import { openContactConversation } from "../controllers/messageController.js";
-import { getNewsletterAdmin, sendNewsletterBroadcast, sendNewsletterTest } from "../controllers/newsletterController.js";
+import { getNewsletterAdmin, getNewsletterStats, listNewsletterBroadcasts, sendNewsletterBroadcast, sendNewsletterTest } from "../controllers/newsletterController.js";
 import { listAllOrders, updateOrderReturnStatus, updateOrderStatus } from "../controllers/orderController.js";
 import { listAdminProducts, setProductStatus, updateProduct } from "../controllers/productController.js";
 import { listAdminReviews, setReviewPinned } from "../controllers/reviewController.js";
@@ -19,6 +19,8 @@ adminRoutes.use(authenticateUser, requireAdmin);
 
 adminRoutes.get("/stats", asyncHandler(getStats));
 adminRoutes.get("/newsletter", asyncHandler(getNewsletterAdmin));
+adminRoutes.get("/newsletter/stats", asyncHandler(getNewsletterStats));
+adminRoutes.get("/newsletter/broadcasts", asyncHandler(listNewsletterBroadcasts));
 adminRoutes.post("/newsletter/test", validate(newsletterTestSchema), asyncHandler(sendNewsletterTest));
 adminRoutes.post("/newsletter/broadcast", validate(newsletterBroadcastSchema), asyncHandler(sendNewsletterBroadcast));
 adminRoutes.get("/coupons", asyncHandler(listCoupons));

@@ -176,6 +176,10 @@ export const newsletterUnsubscribeSchema = z.object({
   token: z.string().trim().min(20, "Unsubscribe link is invalid")
 });
 
+export const newsletterPreferenceSchema = z.object({
+  enabled: z.boolean()
+});
+
 function safeOptionalUrl(value, context) {
   if (!value) return;
   try {

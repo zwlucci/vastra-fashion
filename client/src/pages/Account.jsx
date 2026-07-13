@@ -1,9 +1,10 @@
 import { Edit3, X } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { getErrorMessage } from "../api/client.js";
+import { api, getErrorMessage } from "../api/client.js";
 import { UserAvatar } from "../components/UserAvatar.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
+import { useNotification } from "../context/NotificationContext.jsx";
 import { roleLabel } from "../utils/format.js";
 
 function readFileAsDataUrl(file) {
@@ -28,6 +29,72 @@ function profileFromUser(user) {
 
 function Detail({ label, children }) {
   return <div className="rounded-lg border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900"><p className="text-xs font-bold uppercase tracking-wide text-neutral-500">{label}</p><p className="mt-1 break-words font-semibold">{children || "Not provided"}</p></div>;
+}
+
+function NewsletterPreference() {
+  const { showNotice } = useNotification();
+  const [enabled, setEnabled] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const loading = enabled === null;
+
+  useEffect(() => {
+    let active = true;
+    api.get("/newsletter/preference")
+      .then(({ data }) => {
+        if (active) setEnabled(Boolean(data.newsletterEnabled));
+      })
+      .catch(() => {
+        if (active) {
+          setEnabled(false);
+          showNotice("Unable to load your newsletter preference.", "error");
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function togglePreference() {
+    if (loading || saving) return;
+    const previous = enabled;
+    const next = !enabled;
+    setEnabled(next);
+    setSaving(true);
+    try {
+      const { data } = await api.patch("/newsletter/preference", { enabled: next });
+      setEnabled(Boolean(data.newsletterEnabled));
+      showNotice(data.message || (data.newsletterEnabled ? "Newsletter emails enabled." : "Newsletter emails disabled."));
+    } catch {
+      setEnabled(previous);
+      showNotice("Unable to update your newsletter subscription. Please try again.", "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="panel space-y-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-black">Email preferences</h2>
+          <p className="mt-1 text-sm font-semibold">Receive newsletter emails</p>
+          <p className="text-sm text-neutral-500">Get promotional offers, new arrivals, and other VASTRA updates by email.</p>
+        </div>
+        <button
+          aria-checked={Boolean(enabled)}
+          aria-label="Receive newsletter emails"
+          className={`relative h-8 w-14 rounded-full border-2 transition focus:outline-none focus:ring-2 focus:ring-clay focus:ring-offset-2 dark:focus:ring-offset-neutral-950 ${enabled ? "border-clay bg-clay" : "border-neutral-300 bg-neutral-200 dark:border-neutral-700 dark:bg-neutral-800"} ${loading || saving ? "cursor-not-allowed opacity-60" : ""}`}
+          disabled={loading || saving}
+          onClick={togglePreference}
+          role="switch"
+          type="button"
+        >
+          <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition ${enabled ? "left-7" : "left-1"}`} />
+        </button>
+      </div>
+      <p className="text-xs font-semibold text-neutral-500">{loading ? "Loading newsletter preference..." : saving ? "Saving preference..." : enabled ? "Newsletter emails are on." : "Newsletter emails are off."}</p>
+    </section>
+  );
 }
 
 export function Account() {
@@ -135,6 +202,8 @@ export function Account() {
           <div className="flex flex-wrap gap-3"><button className="btn-primary" type="submit">Save Changes</button><button className="btn-secondary" onClick={cancelEditing} type="button">Cancel</button></div>
         </form>
       )}
+
+      <NewsletterPreference />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <form className="panel space-y-4" onSubmit={changePassword}><div><h2 className="text-2xl font-black">Password</h2><p className="text-sm text-neutral-500">Keep password changes separate from profile details.</p></div><label className="block space-y-1"><span className="text-sm font-semibold">Current password</span><input className="w-full" required type="password" value={passwords.currentPassword} onChange={(event) => setPasswords({ ...passwords, currentPassword: event.target.value })} /></label><label className="block space-y-1"><span className="text-sm font-semibold">New password</span><input className="w-full" required minLength="8" type="password" placeholder="At least 8 characters" value={passwords.newPassword} onChange={(event) => setPasswords({ ...passwords, newPassword: event.target.value })} /></label><button className="btn-primary" type="submit">Change password</button></form>

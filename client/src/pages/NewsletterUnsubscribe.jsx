@@ -19,7 +19,7 @@ export function NewsletterUnsubscribe() {
       }
 
       try {
-        const { data } = await api.post("/newsletter/unsubscribe", { token });
+        const { data } = await api.get(`/newsletter/unsubscribe/${encodeURIComponent(token)}`);
         if (!active) return;
         setStatus("success");
         setMessage(data.message || "You have been unsubscribed from VASTRA newsletters.");

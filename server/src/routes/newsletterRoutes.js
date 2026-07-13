@@ -1,7 +1,8 @@
 import { Router } from "express";
-import { subscribeToNewsletter, unsubscribeFromNewsletter } from "../controllers/newsletterController.js";
+import { getNewsletterPreference, subscribeToNewsletter, unsubscribeFromNewsletter, updateNewsletterPreference } from "../controllers/newsletterController.js";
+import { authenticateUser } from "../middleware/auth.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { newsletterSubscribeSchema, newsletterUnsubscribeSchema, validate } from "../utils/validators.js";
+import { newsletterPreferenceSchema, newsletterSubscribeSchema, newsletterUnsubscribeSchema, validate } from "../utils/validators.js";
 
 export const newsletterRoutes = Router();
 
@@ -30,4 +31,7 @@ function newsletterRateLimit(req, res, next) {
 }
 
 newsletterRoutes.post("/subscribe", newsletterRateLimit, validate(newsletterSubscribeSchema), asyncHandler(subscribeToNewsletter));
+newsletterRoutes.get("/preference", authenticateUser, asyncHandler(getNewsletterPreference));
+newsletterRoutes.patch("/preference", authenticateUser, validate(newsletterPreferenceSchema), asyncHandler(updateNewsletterPreference));
+newsletterRoutes.get("/unsubscribe/:token", asyncHandler(unsubscribeFromNewsletter));
 newsletterRoutes.post("/unsubscribe", validate(newsletterUnsubscribeSchema), asyncHandler(unsubscribeFromNewsletter));

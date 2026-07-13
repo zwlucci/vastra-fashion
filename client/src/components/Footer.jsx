@@ -1,14 +1,20 @@
 import { Send } from "lucide-react";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, getErrorMessage } from "../api/client.js";
+import { api } from "../api/client.js";
+import { useAuth } from "../context/AuthContext.jsx";
 import { useNotification } from "../context/NotificationContext.jsx";
 
 export function Footer() {
+  const { user } = useAuth();
   const { showNotice } = useNotification();
   const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const currentYear = new Date().getFullYear();
+
+  useEffect(() => {
+    if (user?.email && !email) setEmail(user.email);
+  }, [user?.email]);
 
   async function subscribe(event) {
     event.preventDefault();
@@ -24,7 +30,7 @@ export function Footer() {
       setEmail("");
       showNotice(data.message || "You're subscribed to VASTRA updates.");
     } catch (error) {
-      showNotice(getErrorMessage(error), "error");
+      showNotice(error.response?.status === 429 ? "Too many subscription attempts. Please try again later." : "Unable to update your newsletter subscription. Please try again.", "error");
     } finally {
       setSubmitting(false);
     }
@@ -66,6 +72,7 @@ export function Footer() {
                 type="email"
                 inputMode="email"
                 autoComplete="email"
+                aria-label="Newsletter email address"
                 placeholder="Email address"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}

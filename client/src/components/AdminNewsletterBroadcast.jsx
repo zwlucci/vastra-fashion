@@ -63,6 +63,7 @@ function HistoryTable({ broadcasts }) {
               <th className="px-4 py-3">Successful</th>
               <th className="px-4 py-3">Failed</th>
               <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Admin</th>
             </tr>
           </thead>
           <tbody>
@@ -74,10 +75,24 @@ function HistoryTable({ broadcasts }) {
                 <td className="px-4 py-3">{broadcast.successfulCount}</td>
                 <td className="px-4 py-3">{broadcast.failedCount}</td>
                 <td className="px-4 py-3"><span className="badge bg-neutral-100 capitalize text-neutral-700 dark:bg-neutral-800 dark:text-neutral-200">{broadcast.status.replace("_", " ")}</span></td>
+                <td className="px-4 py-3 text-neutral-500">{broadcast.sentByName || "Admin"}</td>
               </tr>
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+function HistoryPager({ meta, page, setPage }) {
+  if (!meta || meta.totalPages <= 1) return null;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-neutral-200 pt-4 text-sm dark:border-neutral-800">
+      <p className="text-neutral-500">Page {meta.page} of {meta.totalPages} · {meta.total} broadcasts</p>
+      <div className="flex gap-2">
+        <button className="btn-secondary" disabled={page <= 1} onClick={() => setPage(page - 1)} type="button">Previous</button>
+        <button className="btn-secondary" disabled={page >= meta.totalPages} onClick={() => setPage(page + 1)} type="button">Next</button>
       </div>
     </div>
   );
@@ -88,6 +103,8 @@ export function AdminNewsletterBroadcast() {
   const [testEmail, setTestEmail] = useState("");
   const [stats, setStats] = useState({ activeSubscribers: 0 });
   const [broadcasts, setBroadcasts] = useState([]);
+  const [historyMeta, setHistoryMeta] = useState(null);
+  const [historyPage, setHistoryPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
   const [sending, setSending] = useState(false);
@@ -97,12 +114,16 @@ export function AdminNewsletterBroadcast() {
 
   const validationMessage = useMemo(() => validateForm(form), [form]);
 
-  async function loadNewsletter() {
+  async function loadNewsletter(page = historyPage) {
     setLoading(true);
     try {
-      const { data } = await api.get("/admin/newsletter");
-      setStats(data.stats || { activeSubscribers: 0 });
-      setBroadcasts(data.broadcasts || []);
+      const [statsResponse, historyResponse] = await Promise.all([
+        api.get("/admin/newsletter/stats"),
+        api.get(`/admin/newsletter/broadcasts?page=${page}&limit=10`)
+      ]);
+      setStats(statsResponse.data.stats || { activeSubscribers: 0 });
+      setBroadcasts(historyResponse.data.broadcasts || []);
+      setHistoryMeta(historyResponse.data.meta || null);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -111,8 +132,8 @@ export function AdminNewsletterBroadcast() {
   }
 
   useEffect(() => {
-    loadNewsletter();
-  }, []);
+    loadNewsletter(historyPage);
+  }, [historyPage]);
 
   function updateField(field, value) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -150,7 +171,8 @@ export function AdminNewsletterBroadcast() {
       setError("");
       setConfirmOpen(false);
       setForm(initialForm);
-      await loadNewsletter();
+      setHistoryPage(1);
+      await loadNewsletter(1);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -216,6 +238,7 @@ export function AdminNewsletterBroadcast() {
           <button className="btn-primary w-full" disabled={sending || stats.activeSubscribers < 1} type="submit">
             <Send size={16} /> {sending ? "Sending broadcast..." : "Send broadcast"}
           </button>
+          {stats.activeSubscribers < 1 && <p className="text-sm font-semibold text-clay">There are no active newsletter subscribers.</p>}
         </form>
 
         <div className="space-y-3">
@@ -227,6 +250,7 @@ export function AdminNewsletterBroadcast() {
       <section className="space-y-3">
         <h3 className="text-2xl font-black">Recent Broadcasts</h3>
         <HistoryTable broadcasts={broadcasts} />
+        <HistoryPager meta={historyMeta} page={historyPage} setPage={setHistoryPage} />
       </section>
 
       {confirmOpen && (
