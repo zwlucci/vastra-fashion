@@ -9,9 +9,16 @@ import { listAdminReviews, setReviewPinned } from "../controllers/reviewControll
 import { deleteEntityReviewAsAdmin, listEntityReviewsForAdmin } from "../controllers/entityReviewController.js";
 import { listWardrobeProducts, updateWardrobeProduct } from "../controllers/wardrobeController.js";
 import { createCoupon, disableCoupon, listCoupons, updateCoupon } from "../controllers/couponController.js";
+import {
+  createAdminHomepageCategoryShortcut,
+  deleteAdminHomepageCategoryShortcut,
+  listAdminHomepageCategoryShortcuts,
+  updateAdminHomepageCategoryShortcut,
+  updateAdminHomepageCategoryVisibility
+} from "../controllers/homepageCategoryController.js";
 import { authenticateUser, requireAdmin } from "../middleware/auth.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { couponSchema, couponToggleSchema, newsletterBroadcastSchema, newsletterTestSchema, orderReturnStatusSchema, orderStatusSchema, productDecisionSchema, productSchema, reviewPinSchema, roleSchema, validate, wardrobeAdminSchema } from "../utils/validators.js";
+import { couponSchema, couponToggleSchema, homepageCategoryShortcutSchema, homepageCategoryVisibilitySchema, newsletterBroadcastSchema, newsletterTestSchema, orderReturnStatusSchema, orderStatusSchema, productDecisionSchema, productSchema, reviewPinSchema, roleSchema, validate, wardrobeAdminSchema } from "../utils/validators.js";
 
 export const adminRoutes = Router();
 
@@ -27,6 +34,11 @@ adminRoutes.get("/coupons", asyncHandler(listCoupons));
 adminRoutes.post("/coupons", validate(couponSchema), asyncHandler(createCoupon));
 adminRoutes.patch("/coupons/:id", validate(couponToggleSchema), asyncHandler(updateCoupon));
 adminRoutes.delete("/coupons/:id", asyncHandler(disableCoupon));
+adminRoutes.get("/homepage-categories", asyncHandler(listAdminHomepageCategoryShortcuts));
+adminRoutes.patch("/homepage-categories/visibility", validate(homepageCategoryVisibilitySchema), asyncHandler(updateAdminHomepageCategoryVisibility));
+adminRoutes.post("/homepage-categories", validate(homepageCategoryShortcutSchema), asyncHandler(createAdminHomepageCategoryShortcut));
+adminRoutes.patch("/homepage-categories/:id", validate(homepageCategoryShortcutSchema), asyncHandler(updateAdminHomepageCategoryShortcut));
+adminRoutes.delete("/homepage-categories/:id", asyncHandler(deleteAdminHomepageCategoryShortcut));
 adminRoutes.get("/orders", asyncHandler(listAllOrders));
 adminRoutes.patch("/orders/:id/status", validate(orderStatusSchema), asyncHandler(updateOrderStatus));
 adminRoutes.patch("/orders/:id/return-status", validate(orderReturnStatusSchema), asyncHandler(updateOrderReturnStatus));

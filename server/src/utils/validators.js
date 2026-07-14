@@ -108,6 +108,18 @@ export const wardrobeAdminSchema = z.object({
   removeWardrobeImage: z.boolean().optional().default(false)
 });
 
+export const homepageCategoryVisibilitySchema = z.object({
+  visible: z.boolean()
+});
+
+export const homepageCategoryShortcutSchema = z.object({
+  displayName: z.string().trim().min(1, "Display name is required").max(80),
+  mappedCategory: z.string().refine(isProductCategory, "Choose a category from the approved list"),
+  iconData: z.string().optional().default(""),
+  isActive: z.boolean().optional().default(true),
+  displayOrder: z.coerce.number().int().min(0).max(100000).optional().default(0)
+});
+
 const wardrobeComboItemSchema = z.object({
   productId: z.string().uuid(),
   x: z.coerce.number().finite().min(0).max(5000),
