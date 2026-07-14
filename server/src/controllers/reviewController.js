@@ -1,4 +1,5 @@
 import { query } from "../config/db.js";
+import { emitDashboardUpdated } from "../socket.js";
 import { notFound } from "../utils/errors.js";
 
 function mapReview(row) {
@@ -40,6 +41,7 @@ export async function createReview(req, res) {
      WHERE reviews.id = $1`,
     [rows[0].id]
   );
+  emitDashboardUpdated("user-reviews");
   res.status(201).json({ review: mapReview(joined.rows[0]) });
 }
 

@@ -2,6 +2,20 @@ import { query } from "../config/db.js";
 import { AppError } from "./errors.js";
 
 const adminSections = {
+  coupons: {
+    sql: "SELECT COUNT(*)::int AS count FROM coupons WHERE GREATEST(created_at, updated_at) > $2 AND (created_by IS NULL OR created_by <> $1)",
+    params: () => []
+  },
+  "homepage-categories": {
+    sql: `SELECT COUNT(*)::int AS count
+          FROM (
+            SELECT GREATEST(created_at, updated_at) AS changed_at FROM homepage_category_shortcuts
+            UNION ALL
+            SELECT GREATEST(created_at, updated_at) AS changed_at FROM app_settings WHERE key = 'homepage_categories_visible'
+          ) updates
+          WHERE changed_at > $2`,
+    params: () => []
+  },
   "product-approvals": {
     sql: "SELECT COUNT(*)::int AS count FROM products WHERE status = 'pending' AND created_at > $2",
     params: () => []
@@ -67,7 +81,30 @@ function registryFor(role) {
   throw new AppError("Dashboard updates are only available to admins and vendors.", 403);
 }
 
+let dashboardSectionSeenReady;
+
+async function ensureDashboardSectionSeenTable() {
+  if (!dashboardSectionSeenReady) {
+    dashboardSectionSeenReady = (async () => {
+      await query(`
+        CREATE TABLE IF NOT EXISTS dashboard_section_seen (
+          user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          section_key TEXT NOT NULL,
+          seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (user_id, section_key)
+        )
+      `);
+      await query("CREATE INDEX IF NOT EXISTS idx_dashboard_section_seen_user ON dashboard_section_seen(user_id, section_key)");
+    })().catch((error) => {
+      dashboardSectionSeenReady = undefined;
+      throw error;
+    });
+  }
+  return dashboardSectionSeenReady;
+}
+
 async function seenMap(userId) {
+  await ensureDashboardSectionSeenTable();
   const { rows } = await query("SELECT section_key, seen_at FROM dashboard_section_seen WHERE user_id = $1", [userId]);
   return new Map(rows.map((row) => [row.section_key, row.seen_at]));
 }
@@ -85,7 +122,8 @@ export async function dashboardSectionCounts(user) {
 
 export async function markDashboardSectionSeen(user, sectionKey) {
   const sections = registryFor(user.role);
-  if (!sections[sectionKey]) throw new AppError("Unknown dashboard section.", 400);
+  if (!sections[sectionKey]) return dashboardSectionCounts(user);
+  await ensureDashboardSectionSeenTable();
   await query(
     `INSERT INTO dashboard_section_seen (user_id, section_key, seen_at)
      VALUES ($1, $2, NOW())

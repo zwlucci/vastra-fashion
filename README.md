@@ -13,7 +13,7 @@ VASTRA is a full-stack clothing e-commerce system with a React storefront, Expre
 - Public visitors can browse approved products, view product details, use search/filters, submit contact messages, login, and register.
 - Users can manage cart items, checkout, view their own orders, and access their account page.
 - Vendors can do user actions, manage only their own products, and see product approval status. Vendor uploads start as `pending`.
-- Admins can view stats, users/vendors, all products, pending approvals, all orders, contact messages, approve/reject products, update order status, and delete/update products.
+- Admins can view stats, users/vendors, all products, pending approvals, all orders, contact messages, approve/reject products, and delete/update products.
 
 ## Setup
 
