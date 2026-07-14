@@ -7,7 +7,7 @@ import { money, statusClass } from "../utils/format.js";
 
 const statuses = ["pending", "processing", "shipped", "delivered", "cancelled"];
 
-export function AdminOrderHistory({ orders, onStatusChange, onReturnStatusChange, focusedOrderId = "" }) {
+export function AdminOrderHistory({ orders, onStatusChange, focusedOrderId = "" }) {
   const [selected, setSelected] = useState(null);
   const [statusChange, setStatusChange] = useState(null);
   useEffect(() => { const order = orders.find((item) => item.id === focusedOrderId); if (order) setSelected(order); }, [focusedOrderId, orders]);
@@ -24,7 +24,7 @@ export function AdminOrderHistory({ orders, onStatusChange, onReturnStatusChange
         <button className="btn-secondary w-full" onClick={() => setSelected(order)} type="button"><Eye size={16} /> View details</button>
       </article>)}
     </div>
-    <DashboardDetailModal open={Boolean(selected)} onClose={() => setSelected(null)} eyebrow="Admin order history" title={`Order #${selected?.id?.slice(0, 8) || ""}`} footer={selected && <div className="flex flex-wrap items-center justify-end gap-3">{!["delivered", "cancelled"].includes(selected.status) && <><label className="text-sm font-bold" htmlFor="admin-order-status">Update delivery</label><select id="admin-order-status" value={selected.status} onChange={(event) => askStatus(selected, event.target.value)}>{statuses.map((status) => <option value={status} key={status}>{status}</option>)}</select></>}{selected.returnStatus === "requested" && <><button className="btn-secondary" onClick={async () => { await onReturnStatusChange(selected.id, "approved"); setSelected(null); }} type="button">Approve return</button><button className="btn-secondary text-red-600" onClick={async () => { await onReturnStatusChange(selected.id, "rejected"); setSelected(null); }} type="button">Reject return</button></>}{selected.returnStatus === "approved" && <button className="btn-secondary" onClick={async () => { await onReturnStatusChange(selected.id, "completed"); setSelected(null); }} type="button">Complete return</button>}</div>}>
+    <DashboardDetailModal open={Boolean(selected)} onClose={() => setSelected(null)} eyebrow="Admin order history" title={`Order #${selected?.id?.slice(0, 8) || ""}`} footer={selected && <div className="flex flex-wrap items-center justify-end gap-3">{!["delivered", "cancelled"].includes(selected.status) && <><label className="text-sm font-bold" htmlFor="admin-order-status">Update delivery</label><select id="admin-order-status" value={selected.status} onChange={(event) => askStatus(selected, event.target.value)}>{statuses.map((status) => <option value={status} key={status}>{status}</option>)}</select></>}</div>}>
       {selected && <div className="space-y-6">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Info label="Customer" value={selected.customerName} /><Info label="Email" value={selected.customerEmail} /><Info label="Phone" value={selected.phoneNumber} /><Info label="Status" value={selected.status} capitalize /></div>
         <div className="grid gap-3 sm:grid-cols-2"><Info label="Delivery address" value={selected.deliveryAddress} /><Info label="Order date" value={new Date(selected.createdAt).toLocaleString()} /><Info label="Payment method" value={selected.paymentMethod === "cod" ? "Cash on delivery" : selected.paymentMethod} capitalize /><Info label="Payment status" value={selected.paymentStatus} capitalize /></div>

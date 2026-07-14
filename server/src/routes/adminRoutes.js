@@ -1,9 +1,9 @@
 import { Router } from "express";
-import { getStats, listUsers, updateUserRole } from "../controllers/adminController.js";
+import { getDashboardUpdates, getStats, listUsers, markDashboardUpdateSeen, updateUserRole } from "../controllers/adminController.js";
 import { listContactMessages } from "../controllers/contactController.js";
 import { openContactConversation } from "../controllers/messageController.js";
 import { getNewsletterAdmin, getNewsletterStats, listNewsletterBroadcasts, sendNewsletterBroadcast, sendNewsletterTest } from "../controllers/newsletterController.js";
-import { listAllOrders, updateOrderReturnStatus, updateOrderStatus } from "../controllers/orderController.js";
+import { listAllOrders, updateOrderStatus } from "../controllers/orderController.js";
 import { listAdminProducts, setProductStatus, updateProduct } from "../controllers/productController.js";
 import { listAdminReviews, setReviewPinned } from "../controllers/reviewController.js";
 import { deleteEntityReviewAsAdmin, listEntityReviewsForAdmin } from "../controllers/entityReviewController.js";
@@ -18,13 +18,15 @@ import {
 } from "../controllers/homepageCategoryController.js";
 import { authenticateUser, requireAdmin } from "../middleware/auth.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { couponSchema, couponToggleSchema, homepageCategoryShortcutSchema, homepageCategoryVisibilitySchema, newsletterBroadcastSchema, newsletterTestSchema, orderReturnStatusSchema, orderStatusSchema, productDecisionSchema, productSchema, reviewPinSchema, roleSchema, validate, wardrobeAdminSchema } from "../utils/validators.js";
+import { couponSchema, couponToggleSchema, homepageCategoryShortcutSchema, homepageCategoryVisibilitySchema, newsletterBroadcastSchema, newsletterTestSchema, orderStatusSchema, productDecisionSchema, productSchema, reviewPinSchema, roleSchema, validate, wardrobeAdminSchema } from "../utils/validators.js";
 
 export const adminRoutes = Router();
 
 adminRoutes.use(authenticateUser, requireAdmin);
 
 adminRoutes.get("/stats", asyncHandler(getStats));
+adminRoutes.get("/dashboard-updates", asyncHandler(getDashboardUpdates));
+adminRoutes.patch("/dashboard-updates/:section/seen", asyncHandler(markDashboardUpdateSeen));
 adminRoutes.get("/newsletter", asyncHandler(getNewsletterAdmin));
 adminRoutes.get("/newsletter/stats", asyncHandler(getNewsletterStats));
 adminRoutes.get("/newsletter/broadcasts", asyncHandler(listNewsletterBroadcasts));
@@ -41,7 +43,6 @@ adminRoutes.patch("/homepage-categories/:id", validate(homepageCategoryShortcutS
 adminRoutes.delete("/homepage-categories/:id", asyncHandler(deleteAdminHomepageCategoryShortcut));
 adminRoutes.get("/orders", asyncHandler(listAllOrders));
 adminRoutes.patch("/orders/:id/status", validate(orderStatusSchema), asyncHandler(updateOrderStatus));
-adminRoutes.patch("/orders/:id/return-status", validate(orderReturnStatusSchema), asyncHandler(updateOrderReturnStatus));
 adminRoutes.get("/products", asyncHandler(listAdminProducts));
 adminRoutes.put("/products/:id", validate(productSchema), asyncHandler(updateProduct));
 adminRoutes.patch("/products/:id/approve", validate(productDecisionSchema), (req, _res, next) => {

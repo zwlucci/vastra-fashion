@@ -1,6 +1,6 @@
 import { Check, CreditCard, LockKeyhole, MapPin, ShoppingBag } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api, getErrorMessage } from "../api/client.js";
 import { CartItem } from "../components/CartItem.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -25,10 +25,10 @@ function OrderSummary({ subtotal, discount, total, coupon, couponCode, setCoupon
 export function Cart() {
   const { isAuthenticated, user } = useAuth();
   const { items, total: subtotal, checkout } = useCart();
+  const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [message, setMessage] = useState("");
   const [placing, setPlacing] = useState(false);
-  const [completedOrder, setCompletedOrder] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState("cod");
   const [details, setDetails] = useState({ fullName: "", phoneNumber: "", deliveryAddress: "" });
   const [saveShippingInfo, setSaveShippingInfo] = useState(false);
@@ -63,17 +63,18 @@ export function Cart() {
   }
 
   async function placeOrder() {
+    if (placing) return;
     setMessage("");
     if (!validateShipping()) { setStep(1); return; }
     if (paymentMethod === "card" && (card.cardholderName.trim().length < 2 || !/^\d{13,19}$/.test(card.cardNumber.replace(/[ -]/g, "")) || !validCardExpiry(card.expiryDate) || !/^\d{3,4}$/.test(card.cvv))) { setMessage("Enter valid card details, including an MM/YY expiry date."); return; }
     setPlacing(true);
     try {
       const order = await checkout({ paymentMethod, ...details, couponCode: coupon?.code || "", saveShippingInfo, saveCardDetails: paymentMethod === "card" && saveCardDetails, ...(paymentMethod === "card" ? { card: { ...card, cardNumber: card.cardNumber.replace(/[ -]/g, "") } } : {}) });
-      setCompletedOrder(order); setCard((current) => ({ ...current, cardNumber: "", cvv: "" }));
+      setCard((current) => ({ ...current, cardNumber: "", cvv: "" }));
+      navigate(`/orders/${order.id}/success`);
     } catch (error) { setMessage(getErrorMessage(error)); } finally { setPlacing(false); }
   }
 
-  if (completedOrder) return <section className="mx-auto max-w-2xl px-4 py-14"><div className="panel space-y-5 text-center"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-clay/10 text-2xl text-clay">✓</div>{completedOrder.paymentMethod === "card" && <p className="text-sm font-bold uppercase tracking-wide text-clay">Payment successful</p>}<h1 className="text-3xl font-black">Order placed successfully</h1><p className="text-neutral-500">Order #{completedOrder.id.slice(0, 8)} is confirmed. Your final PDF receipt will be emailed after delivery.</p><div className="flex justify-center gap-3"><Link className="btn-secondary" to="/orders">View order</Link><Link className="btn-primary" to="/">Back to Home</Link></div></div></section>;
 
   const summary = (button) => <OrderSummary subtotal={subtotal} discount={discount} total={total} coupon={coupon} couponCode={couponCode} setCouponCode={setCouponCode} applyingCoupon={applyingCoupon} applyCoupon={applyCoupon} removeCoupon={() => { setCoupon(null); setCouponCode(""); }} button={button} />;
 
