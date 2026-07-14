@@ -44,20 +44,22 @@ export function Shop() {
   const [searchParams] = useSearchParams();
   const [filters, setFilters] = useState({
     search: "",
-    category: "",
+    category: searchParams.get("category") || "",
     gender: searchParams.get("gender") || "",
     brand: "",
     size: "",
     minPrice: "",
     maxPrice: "",
-    sort: "newest"
+    sort: searchParams.get("sort") || "newest"
   });
   const [products, setProducts] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [productsPerPage, setProductsPerPage] = useState(getProductsPerPage);
+  const categoryParam = searchParams.get("category") || "";
   const genderParam = searchParams.get("gender") || "";
+  const sortParam = searchParams.get("sort") || "newest";
 
   const query = useMemo(() => {
     const params = new URLSearchParams();
@@ -94,8 +96,13 @@ export function Shop() {
   }, [query]);
 
   useEffect(() => {
-    setFilters((current) => current.gender === genderParam ? current : { ...current, gender: genderParam });
-  }, [genderParam]);
+    setFilters((current) => {
+      if (current.category === categoryParam && current.gender === genderParam && current.sort === sortParam) {
+        return current;
+      }
+      return { ...current, category: categoryParam, gender: genderParam, sort: sortParam };
+    });
+  }, [categoryParam, genderParam, sortParam]);
 
   useEffect(() => {
     function handleResize() {

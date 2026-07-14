@@ -53,6 +53,10 @@ export async function saveWardrobeImage(imageData) {
   return saveImage(imageData, "wardrobe");
 }
 
+export async function saveHomepageCategoryIcon(imageData) {
+  return saveImage(imageData, "homepage-categories");
+}
+
 export async function saveProductMedia(mediaData, declaredType = "image") {
   if (!mediaData) return null;
   if (declaredType === "image") return saveProductImage(mediaData);

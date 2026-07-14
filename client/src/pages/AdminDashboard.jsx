@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { BarChart3, ClipboardList, Mail, MessageSquare, PackageCheck, Percent, Shirt, Star, Store, Trash2, UserRound } from "lucide-react";
+import { BarChart3, ClipboardList, Grid2X2, Mail, MessageSquare, PackageCheck, Percent, Shirt, Star, Store, Trash2, UserRound } from "lucide-react";
 import { Link, NavLink, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, getErrorMessage } from "../api/client.js";
 import { AdminCouponManager } from "../components/AdminCouponManager.jsx";
@@ -7,11 +7,13 @@ import { AdminProductApprovalTable } from "../components/AdminProductApprovalTab
 import { AdminUsersTable } from "../components/AdminUsersTable.jsx";
 import { AdminOrderHistory } from "../components/AdminOrderHistory.jsx";
 import { AdminNewsletterBroadcast } from "../components/AdminNewsletterBroadcast.jsx";
+import { AdminHomepageCategories } from "../components/AdminHomepageCategories.jsx";
 import { useMessages } from "../context/MessageContext.jsx";
 
 const sections = [
   ["stat-viewer", "Stat Viewer", BarChart3],
   ["coupons", "Coupon Management", Percent],
+  ["homepage-categories", "Homepage Categories", Grid2X2],
   ["newsletter-broadcast", "Newsletter Broadcast", Mail],
   ["product-approvals", "Product Approvals", PackageCheck],
   ["users-vendors", "Users and Vendors", UserRound],
@@ -56,7 +58,7 @@ export function AdminDashboard() {
   const [error, setError] = useState("");
 
   const loadSection = useCallback(async () => {
-    if (!valid || ["coupons", "newsletter-broadcast"].includes(section)) { setLoading(false); return; }
+    if (!valid || ["coupons", "homepage-categories", "newsletter-broadcast"].includes(section)) { setLoading(false); return; }
     setLoading(true);
     try {
       if (section === "stat-viewer") { const response = await api.get("/admin/stats"); setData((current) => ({ ...current, stats: response.data.stats })); }
@@ -100,6 +102,7 @@ export function AdminDashboard() {
         {loading ? <p className="panel text-sm text-neutral-500">Loading {title.toLowerCase()}...</p> : <>
           {section === "stat-viewer" && data.stats && <div className="space-y-7 rounded-2xl border border-neutral-200 bg-neutral-50/60 p-4 dark:border-neutral-800 dark:bg-neutral-950/40 sm:p-6"><MetricSection title="Needs Attention" metrics={[["Pending Approvals", data.stats.pending_approvals ?? 0], ["Active Orders", data.stats.active_orders ?? 0], ["Unread Chats", data.stats.unread_chats ?? 0]]} /><MetricSection title="Inventory" metrics={[["Low Stock", data.stats.low_stock ?? 0], ["Out of Stock", data.stats.out_of_stock ?? 0], ["Recently Added Products", data.stats.recently_added_products ?? 0]]} /><MetricSection title="Growth" metrics={[["New Users This Week", data.stats.new_users_this_week ?? 0], ["New Vendors This Week", data.stats.new_vendors_this_week ?? 0], ["Total Approved Products", data.stats.total_approved_products ?? 0]]} /><MetricSection title="Performance" metrics={[["Top Selling Product", data.stats.top_selling_product], ["Most Wishlisted Product", data.stats.most_wishlisted_product], ["Popular Category", data.stats.popular_category]]} /></div>}
           {section === "coupons" && <AdminCouponManager />}
+          {section === "homepage-categories" && <AdminHomepageCategories />}
           {section === "newsletter-broadcast" && <AdminNewsletterBroadcast />}
           {section === "product-approvals" && <AdminProductApprovalTable products={data.products} onApprove={(id) => decideProduct(id, "approve")} onReject={(id, reason) => decideProduct(id, "reject", reason)} />}
           {section === "users-vendors" && <div className="grid gap-6 xl:grid-cols-2"><AdminUsersTable title="Users" users={data.users} onPromote={promoteUser} meta={meta} page={page} setPage={setPage} search={search} setSearch={(value) => { setSearch(value); setPage(1); }} sort={sort} setSort={(value) => { setSort(value); setPage(1); }} /><AdminUsersTable title="Vendors" users={data.vendors} onPromote={promoteUser} meta={vendorMeta} page={vendorPage} setPage={setVendorPage} search={vendorSearch} setSearch={(value) => { setVendorSearch(value); setVendorPage(1); }} sort={vendorSort} setSort={(value) => { setVendorSort(value); setVendorPage(1); }} /></div>}

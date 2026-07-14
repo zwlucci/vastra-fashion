@@ -6,6 +6,7 @@ import { Account } from "./pages/Account.jsx";
 import { AdminDashboard } from "./pages/AdminDashboard.jsx";
 import { AdminWardrobe } from "./pages/AdminWardrobe.jsx";
 import { Cart } from "./pages/Cart.jsx";
+import { CategoryProducts } from "./pages/CategoryProducts.jsx";
 import { Contact } from "./pages/Contact.jsx";
 import { Home } from "./pages/Home.jsx";
 import { Login } from "./pages/Login.jsx";
@@ -26,6 +27,7 @@ export default function App() {
     <Routes>
       <Route element={<Layout />}>
         <Route index element={<Home />} />
+        <Route path="/categories/:slug" element={<CategoryProducts />} />
         <Route path="/shop" element={<Shop />} />
         <Route path="/shop/:id" element={<ProductDetail />} />
         <Route path="/vendors/:id" element={<VendorProfile />} />

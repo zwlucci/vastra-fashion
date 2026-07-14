@@ -43,4 +43,13 @@
   .badge {
     @apply inline-flex rounded-full px-2.5 py-1 text-xs font-semibold;
   }
+
+  .scrollbar-hide {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
 }
