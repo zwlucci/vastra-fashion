@@ -3,7 +3,7 @@ import { getDashboardUpdates, getStats, listUsers, markDashboardUpdateSeen, upda
 import { listContactMessages } from "../controllers/contactController.js";
 import { openContactConversation } from "../controllers/messageController.js";
 import { getNewsletterAdmin, getNewsletterStats, listNewsletterBroadcasts, sendNewsletterBroadcast, sendNewsletterTest } from "../controllers/newsletterController.js";
-import { listAllOrders, updateOrderStatus } from "../controllers/orderController.js";
+import { listAllOrders } from "../controllers/orderController.js";
 import { listAdminProducts, setProductStatus, updateProduct } from "../controllers/productController.js";
 import { listAdminReviews, setReviewPinned } from "../controllers/reviewController.js";
 import { deleteEntityReviewAsAdmin, listEntityReviewsForAdmin } from "../controllers/entityReviewController.js";
@@ -18,7 +18,7 @@ import {
 } from "../controllers/homepageCategoryController.js";
 import { authenticateUser, requireAdmin } from "../middleware/auth.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { couponSchema, couponToggleSchema, homepageCategoryShortcutSchema, homepageCategoryVisibilitySchema, newsletterBroadcastSchema, newsletterTestSchema, orderStatusSchema, productDecisionSchema, productSchema, reviewPinSchema, roleSchema, validate, wardrobeAdminSchema } from "../utils/validators.js";
+import { couponSchema, couponToggleSchema, homepageCategoryShortcutSchema, homepageCategoryVisibilitySchema, newsletterBroadcastSchema, newsletterTestSchema, productDecisionSchema, productSchema, reviewPinSchema, roleSchema, validate, wardrobeAdminSchema } from "../utils/validators.js";
 
 export const adminRoutes = Router();
 
@@ -42,7 +42,6 @@ adminRoutes.post("/homepage-categories", validate(homepageCategoryShortcutSchema
 adminRoutes.patch("/homepage-categories/:id", validate(homepageCategoryShortcutSchema), asyncHandler(updateAdminHomepageCategoryShortcut));
 adminRoutes.delete("/homepage-categories/:id", asyncHandler(deleteAdminHomepageCategoryShortcut));
 adminRoutes.get("/orders", asyncHandler(listAllOrders));
-adminRoutes.patch("/orders/:id/status", validate(orderStatusSchema), asyncHandler(updateOrderStatus));
 adminRoutes.get("/products", asyncHandler(listAdminProducts));
 adminRoutes.put("/products/:id", validate(productSchema), asyncHandler(updateProduct));
 adminRoutes.patch("/products/:id/approve", validate(productDecisionSchema), (req, _res, next) => {

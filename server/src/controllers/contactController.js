@@ -1,4 +1,5 @@
 import { query } from "../config/db.js";
+import { emitDashboardUpdated } from "../socket.js";
 import { createConversationFromContactMessage } from "./messageController.js";
 
 export async function createContactMessage(req, res) {
@@ -10,6 +11,7 @@ export async function createContactMessage(req, res) {
     [name, email, subject, message]
   );
   await createConversationFromContactMessage(rows[0].id);
+  emitDashboardUpdated("contact-messages");
   res.status(201).json({ message: rows[0] });
 }
 

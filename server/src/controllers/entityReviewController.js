@@ -1,4 +1,5 @@
 import { query } from "../config/db.js";
+import { emitDashboardUpdated } from "../socket.js";
 import { AppError, notFound } from "../utils/errors.js";
 
 function mapReview(row) {
@@ -67,6 +68,7 @@ export async function createProductReview(req, res) {
     if (error.code === "23505") throw new AppError("You have already reviewed this product", 409);
     throw error;
   }
+  emitDashboardUpdated("product-reviews");
   res.status(201).json(await listFor("product_reviews", "product_id", req.params.productId));
 }
 
@@ -122,6 +124,7 @@ export async function createVendorReview(req, res) {
     if (error.code === "23505") throw new AppError("You have already reviewed this vendor", 409);
     throw error;
   }
+  emitDashboardUpdated("vendor-reviews");
   res.status(201).json(await listFor("vendor_reviews", "vendor_id", req.params.vendorId));
 }
 

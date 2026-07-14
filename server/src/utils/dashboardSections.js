@@ -2,6 +2,20 @@ import { query } from "../config/db.js";
 import { AppError } from "./errors.js";
 
 const adminSections = {
+  coupons: {
+    sql: "SELECT COUNT(*)::int AS count FROM coupons WHERE GREATEST(created_at, updated_at) > $2 AND (created_by IS NULL OR created_by <> $1)",
+    params: () => []
+  },
+  "homepage-categories": {
+    sql: `SELECT COUNT(*)::int AS count
+          FROM (
+            SELECT GREATEST(created_at, updated_at) AS changed_at FROM homepage_category_shortcuts
+            UNION ALL
+            SELECT GREATEST(created_at, updated_at) AS changed_at FROM app_settings WHERE key = 'homepage_categories_visible'
+          ) updates
+          WHERE changed_at > $2`,
+    params: () => []
+  },
   "product-approvals": {
     sql: "SELECT COUNT(*)::int AS count FROM products WHERE status = 'pending' AND created_at > $2",
     params: () => []
@@ -85,7 +99,7 @@ export async function dashboardSectionCounts(user) {
 
 export async function markDashboardSectionSeen(user, sectionKey) {
   const sections = registryFor(user.role);
-  if (!sections[sectionKey]) throw new AppError("Unknown dashboard section.", 400);
+  if (!sections[sectionKey]) return dashboardSectionCounts(user);
   await query(
     `INSERT INTO dashboard_section_seen (user_id, section_key, seen_at)
      VALUES ($1, $2, NOW())
