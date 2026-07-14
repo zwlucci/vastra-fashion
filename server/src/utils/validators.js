@@ -282,7 +282,13 @@ export const orderStatusSchema = z.object({
 });
 
 export const orderReturnStatusSchema = z.object({
-  status: z.enum(["approved", "rejected", "completed"])
+  status: z.enum(["approved", "rejected", "completed"]),
+  reason: z.string().trim().min(5, "A reason is required").max(800).optional()
+});
+
+export const vendorReturnDecisionSchema = z.object({
+  status: z.enum(["approved", "rejected"]),
+  reason: z.string().trim().min(5, "A reason is required").max(800)
 });
 
 export const roleSchema = z.object({

@@ -255,7 +255,7 @@ export async function sendOrderConfirmationEmail(to, order) {
     `Hello ${order.customerName},`, "", `Your VASTRA order #${order.id} was placed successfully.`,
     ...orderItemsText(order.items), "", `Payment: ${paymentName} (${order.paymentStatus})`,
     `Delivery address: ${order.deliveryAddress}`, `Grand total: ${formatCurrency(order.totalAmount)}`,
-    "", "We will email your final PDF receipt after delivery. Thank you for shopping with VASTRA."
+    "", order.paymentMethod === "card" ? "Your payment receipt will be emailed shortly." : "We will email your receipt after payment is collected on delivery.", "Thank you for shopping with VASTRA."
   ].join("\n");
   const html = emailShell({
     title: "Order placed successfully",
@@ -278,11 +278,14 @@ export async function sendOrderReceiptEmail(to, order) {
   const config = getMailConfig();
   const transporter = transporterFor(config);
   const receipt = await createOrderReceiptPdf(order);
+  const receiptText = order.paymentMethod === "cod"
+    ? `Your order #${order.id} has been delivered and paid. Your PDF receipt is attached.`
+    : `Your payment for order #${order.id} was successful. Your PDF receipt is attached.`;
   await transporter.sendMail({
     from: config.from,
     to,
     subject: `VASTRA final receipt ${String(order.id).slice(0, 8)}`,
-    text: `Your order #${order.id} has been delivered. Your final PDF receipt is attached.`,
+    text: receiptText,
     attachments: [{ filename: `VASTRA-receipt-${String(order.id).slice(0, 8)}.pdf`, content: receipt, contentType: "application/pdf" }]
   });
 }

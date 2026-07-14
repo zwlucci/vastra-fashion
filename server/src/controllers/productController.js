@@ -4,6 +4,8 @@ import { saveProductMedia } from "../utils/imageUpload.js";
 import { AppError, notFound } from "../utils/errors.js";
 import { serializeProduct } from "../utils/serializers.js";
 import { emitCartStockInvalidated, emitProductUpdated } from "../socket.js";
+import { createOrderNotifications } from "../utils/orderNotifications.js";
+import { formatCurrency } from "../../../shared/currency.mjs";
 
 function parseList(value) {
   if (!value) return null;
@@ -27,6 +29,51 @@ function vendorBrand(user) {
 function firstProductImage(product) {
   const media = Array.isArray(product.product_images) ? product.product_images : [];
   return media.find((item) => item?.url && (!item.type || item.type === "image"))?.url || "";
+}
+
+function minEffectivePrice(product) {
+  const base = Number(product.price);
+  const sizePrices = product.size_prices || {};
+  const prices = Object.values(sizePrices).map(Number).filter((value) => Number.isFinite(value) && value >= 0);
+  prices.push(base);
+  return Math.min(...prices);
+}
+
+async function notifyWishlistPriceDrop(previous, current) {
+  if (previous.status !== "approved" || current.status !== "approved") return;
+  const previousPrice = minEffectivePrice(previous);
+  const newPrice = minEffectivePrice(current);
+  if (!(newPrice < previousPrice)) return;
+
+  const event = await query(
+    `INSERT INTO product_price_drop_events (product_id, previous_price, new_price)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (product_id, previous_price, new_price) DO NOTHING
+     RETURNING id`,
+    [current.id, previousPrice, newPrice]
+  );
+  if (!event.rows[0]) return;
+
+  const wishlists = await query("SELECT DISTINCT user_id FROM wishlist_items WHERE product_id = $1", [current.id]);
+  const recipientIds = wishlists.rows.map((row) => row.user_id).filter((id) => id !== current.vendor_id);
+  if (!recipientIds.length) return;
+
+  await createOrderNotifications(recipientIds, {
+    type: "price_drop",
+    title: "Price drop",
+    message: `Price drop: ${current.name} is now ${formatCurrency(newPrice)}, reduced from ${formatCurrency(previousPrice)}.`,
+    metadata: {
+      notificationType: "price_drop",
+      productId: current.id,
+      previousPrice,
+      newPrice,
+      timestamp: new Date().toISOString(),
+      targetType: "product",
+      targetId: current.id,
+      targetUrl: `/shop/${current.id}`,
+      imageUrl: current.image_url || ""
+    }
+  });
 }
 
 async function buildProductMedia({ media = [], images = [], imageData }, fallbackMedia = []) {
@@ -117,6 +164,50 @@ export async function listPublicProducts(req, res) {
   res.json({ products: rows.map(serializeProduct) });
 }
 
+export async function listSearchSuggestions(req, res) {
+  const term = String(req.query.q || "").trim();
+  if (!term) return res.json({ suggestions: [] });
+  const like = `%${term}%`;
+  const [products, categories] = await Promise.all([
+    query(
+      `SELECT id, name, brand, image_url
+       FROM products
+       WHERE status = 'approved'
+         AND (name ILIKE $1 OR brand ILIKE $1 OR description ILIKE $1)
+       ORDER BY
+         CASE WHEN name ILIKE $2 THEN 0 ELSE 1 END,
+         name ASC
+       LIMIT 7`,
+      [like, `${term}%`]
+    ),
+    query(
+      `SELECT category
+       FROM products
+       WHERE status = 'approved' AND category ILIKE $1
+       GROUP BY category
+       ORDER BY category ASC
+       LIMIT 7`,
+      [like]
+    )
+  ]);
+  const productSuggestions = products.rows.map((product) => ({
+    type: "product",
+    id: product.id,
+    label: product.name,
+    subtitle: product.brand,
+    imageUrl: product.image_url,
+    url: `/shop/${product.id}`
+  }));
+  const categorySuggestions = categories.rows.map((category) => ({
+    type: "category",
+    id: category.category,
+    label: category.category,
+    subtitle: "Category",
+    url: `/shop?category=${encodeURIComponent(category.category)}`
+  }));
+  res.json({ suggestions: [...productSuggestions, ...categorySuggestions].slice(0, 7) });
+}
+
 export async function getPublicProduct(req, res) {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(req.params.id)) {
     throw notFound("Product not found");
@@ -156,8 +247,8 @@ export async function updateProduct(req, res) {
   const { name, description, price, category, gender, stock, media, images, imageData } = req.body;
   const options = normalizedProductOptions(req.body);
   const existing = req.user.role === "admin"
-    ? await query("SELECT image_url, product_images, brand, status FROM products WHERE id = $1", [req.params.id])
-    : await query("SELECT image_url, product_images, brand, status FROM products WHERE id = $1 AND vendor_id = $2", [req.params.id, req.user.id]);
+    ? await query("SELECT image_url, product_images, brand, status, price, size_prices, vendor_id FROM products WHERE id = $1", [req.params.id])
+    : await query("SELECT image_url, product_images, brand, status, price, size_prices, vendor_id FROM products WHERE id = $1 AND vendor_id = $2", [req.params.id, req.user.id]);
   if (!existing.rows[0]) throw notFound("Product not found or not owned by vendor");
   if (req.user.role === "vendor" && existing.rows[0].status === "rejected") {
     throw new AppError("Rejected products cannot be edited", 403);
@@ -181,6 +272,11 @@ export async function updateProduct(req, res) {
 
   const { rows } = await query(sql, params);
   if (!rows[0]) throw notFound("Product not found or not owned by vendor");
+  try {
+    await notifyWishlistPriceDrop(existing.rows[0], rows[0]);
+  } catch (error) {
+    console.error(`[VASTRA wishlist price drop] ${error.message}`);
+  }
   await updateStockAlertState(rows[0]);
   emitProductUpdated(rows[0]);
   await emitCartStockInvalidated(rows[0]);

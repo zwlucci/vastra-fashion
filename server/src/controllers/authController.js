@@ -128,8 +128,9 @@ export async function register(req, res) {
   try {
     await sendAndLogVerificationEmail(normalizedEmail, otp);
   } catch (error) {
+    console.error(`[VASTRA verification email] ${error.message}`);
     await query("DELETE FROM users WHERE id = $1", [user.id]);
-    throw error;
+    throw new AppError("We couldn't send a verification code to this email address. Please check that the address exists and is typed correctly, then try again.", 422);
   }
 
   res.status(201).json({

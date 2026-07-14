@@ -13,6 +13,7 @@ import { Login } from "./pages/Login.jsx";
 import { Messages } from "./pages/Messages.jsx";
 import { NewsletterUnsubscribe } from "./pages/NewsletterUnsubscribe.jsx";
 import { Orders } from "./pages/Orders.jsx";
+import { OrderSuccess } from "./pages/OrderSuccess.jsx";
 import { ProductDetail } from "./pages/ProductDetail.jsx";
 import { Register } from "./pages/Register.jsx";
 import { Shop } from "./pages/Shop.jsx";
@@ -43,6 +44,7 @@ export default function App() {
         <Route path="/wardrobe" element={<Wardrobe />} />
         <Route path="/messages" element={<Messages />} />
         <Route path="/orders" element={<ProtectedRoute><Orders /></ProtectedRoute>} />
+        <Route path="/orders/:id/success" element={<ProtectedRoute><OrderSuccess /></ProtectedRoute>} />
         <Route path="/vendor/dashboard" element={<RoleProtectedRoute roles={["vendor"]}><Navigate to="/vendor/dashboard/income" replace /></RoleProtectedRoute>} />
         <Route path="/vendor/dashboard/:section" element={<RoleProtectedRoute roles={["vendor"]}><VendorDashboard /></RoleProtectedRoute>} />
         <Route path="/admin/dashboard" element={<RoleProtectedRoute roles={["admin"]}><Navigate to="/admin/dashboard/stat-viewer" replace /></RoleProtectedRoute>} />

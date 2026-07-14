@@ -34,6 +34,9 @@ function mapOrderRows(rows) {
         returnRequestedAt: row.return_requested_at,
         returnStatus: row.return_status || "none",
         returnReason: row.return_reason || "",
+        returnVendorReason: row.return_vendor_reason || "",
+        returnVendorId: row.return_vendor_id || "",
+        returnDecidedAt: row.return_decided_at,
         returnProcessedAt: row.return_processed_at,
         receiptSentAt: row.receipt_sent_at,
         returnReceiptSentAt: row.return_receipt_sent_at,
@@ -239,6 +242,13 @@ export async function createOrder(req, res) {
   } catch (error) {
     console.error(`[VASTRA order confirmation] ${error.message}`);
   }
+  if (detailedOrder.paymentMethod === "card" && detailedOrder.paymentStatus === "paid") {
+    try {
+      await sendFinalReceiptOnce(detailedOrder.id, detailedOrder.customerEmail, detailedOrder);
+    } catch (error) {
+      console.error(`[VASTRA card receipt] ${error.message}`);
+    }
+  }
 
   res.status(201).json({ order: detailedOrder });
 }
@@ -269,6 +279,41 @@ export async function listVendorOrders(req, res) {
     [req.user.id]
   );
   res.json({ orders: mapOrderRows(rows) });
+}
+
+export async function listVendorReturnRequests(req, res) {
+  const page = Math.max(1, Number(req.query.page || 1));
+  const limit = Math.min(25, Math.max(1, Number(req.query.limit || 10)));
+  const offset = (page - 1) * limit;
+  const count = await query(
+    `SELECT COUNT(DISTINCT orders.id)::int AS total
+     FROM orders
+     JOIN order_items ON order_items.order_id = orders.id
+     JOIN products ON products.id = order_items.product_id
+     WHERE products.vendor_id = $1 AND orders.return_status <> 'none'`,
+    [req.user.id]
+  );
+  const { rows } = await query(
+    `SELECT orders.*, users.name AS customer_name, users.email AS customer_email,
+            order_items.id AS item_id, order_items.product_id, order_items.quantity,
+            order_items.selected_size, order_items.selected_color, order_items.price_at_purchase,
+            products.name AS product_name, products.vendor_id AS product_vendor_id,
+            products.brand AS product_brand, products.image_url AS product_image_url,
+            vendor_users.name AS product_vendor_name
+     FROM orders
+     JOIN users ON users.id = orders.user_id
+     JOIN order_items ON order_items.order_id = orders.id
+     JOIN products ON products.id = order_items.product_id
+     LEFT JOIN users AS vendor_users ON vendor_users.id = products.vendor_id
+     WHERE products.vendor_id = $1 AND orders.return_status <> 'none'
+     ORDER BY COALESCE(orders.return_requested_at, orders.updated_at) DESC
+     LIMIT $2 OFFSET $3`,
+    [req.user.id, limit, offset]
+  );
+  res.json({
+    returns: mapOrderRows(rows),
+    meta: { page, limit, total: count.rows[0].total, totalPages: Math.max(1, Math.ceil(count.rows[0].total / limit)) }
+  });
 }
 
 export async function getVendorIncomeSummary(req, res) {
@@ -352,6 +397,10 @@ async function applyOrderStatusUpdate({ orderId, status, explanation, actor }) {
            delivered_at = CASE
              WHEN $1::order_status = 'delivered'::order_status THEN COALESCE(delivered_at, NOW())
              ELSE delivered_at
+           END,
+           payment_status = CASE
+             WHEN $1::order_status = 'delivered'::order_status AND payment_method = 'cod' THEN 'paid'
+             ELSE payment_status
            END
        WHERE id = $2 RETURNING *`,
       [status, orderId]
@@ -377,7 +426,7 @@ async function applyOrderStatusUpdate({ orderId, status, explanation, actor }) {
     });
 
     try {
-      if (status === "delivered") {
+      if (status === "delivered" && detailedOrder.paymentMethod === "cod") {
         await sendFinalReceiptOnce(orderId, result.order.customer_email, { ...detailedOrder, status, explanation });
       } else {
         await sendOrderStatusEmail(result.order.customer_email, { ...detailedOrder, status, explanation });
@@ -390,7 +439,7 @@ async function applyOrderStatusUpdate({ orderId, status, explanation, actor }) {
   }
 
   const detailedOrder = (await getOrdersFor("WHERE orders.id = $1", [orderId]))[0];
-  if (detailedOrder.status === "delivered") {
+  if (detailedOrder.status === "delivered" && detailedOrder.paymentMethod === "cod") {
     try {
       await sendFinalReceiptOnce(orderId, result.order.customer_email, detailedOrder);
     } catch (error) {
@@ -498,8 +547,7 @@ export async function requestOrderReturn(req, res) {
   const detailedOrder = (await getOrdersFor("WHERE orders.id = $1", [updated.id]))[0];
   emitOrderUpdated(detailedOrder, vendors.rows.map((row) => row.vendor_id));
   try {
-    const admins = await query("SELECT id FROM users WHERE role = 'admin'");
-    await createOrderNotifications([detailedOrder.userId, ...vendors.rows.map((row) => row.vendor_id), ...admins.rows.map((row) => row.id)], {
+    await createOrderNotifications([detailedOrder.userId, ...vendors.rows.map((row) => row.vendor_id)], {
       orderId: detailedOrder.id,
       type: "return_requested",
       title: "Return requested",
@@ -522,18 +570,28 @@ export async function updateOrderReturnStatus(req, res) {
     );
     const order = result.rows[0];
     if (!order) throw notFound("Order not found");
+    if (req.user.role !== "vendor") throw new AppError("Only vendors can decide customer return requests.", 403);
+    const ownership = await client.query(
+      `SELECT 1 FROM order_items
+       JOIN products ON products.id = order_items.product_id
+       WHERE order_items.order_id = $1 AND products.vendor_id = $2 LIMIT 1`,
+      [order.id, req.user.id]
+    );
+    if (!ownership.rows[0]) throw notFound("Return request not found or not owned by vendor");
     if (order.return_status === "none") throw new AppError("This order has no return request.", 409);
+    if (["approved", "rejected", "completed"].includes(order.return_status)) throw new AppError(`This return is already ${order.return_status}.`, 409);
     if (order.return_status === req.body.status) return { order, customerEmail: order.customer_email, changed: false };
-    if (["rejected", "completed"].includes(order.return_status)) throw new AppError(`This return is already ${order.return_status}.`, 409);
-    if (order.return_status === "approved" && req.body.status !== "completed") throw new AppError("An approved return can only be completed.", 409);
 
     const saved = await client.query(
       `UPDATE orders
        SET return_status = $1,
+           return_vendor_reason = $3,
+           return_vendor_id = $4,
+           return_decided_at = NOW(),
            return_processed_at = CASE WHEN $1 IN ('approved', 'completed') THEN NOW() ELSE return_processed_at END,
            payment_status = CASE WHEN $1 = 'completed' AND payment_status = 'paid' THEN 'refunded' ELSE payment_status END
        WHERE id = $2 RETURNING *`,
-      [req.body.status, order.id]
+      [req.body.status, order.id, req.body.reason, req.user.id]
     );
     return { order: saved.rows[0], customerEmail: order.customer_email, changed: true };
   });
@@ -550,7 +608,7 @@ export async function updateOrderReturnStatus(req, res) {
       type: "return_updated",
       title: "Return status updated",
       message: `The return for order #${detailedOrder.id.slice(0, 8)} is now ${detailedOrder.returnStatus}.`,
-      metadata: { returnStatus: detailedOrder.returnStatus }
+      metadata: { returnStatus: detailedOrder.returnStatus, reason: detailedOrder.returnVendorReason, targetUrl: `/orders` }
     });
   }
 

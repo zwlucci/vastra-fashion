@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { DeliveryProgress } from "./DeliveryProgress.jsx";
 import { ProductImage } from "./ProductImage.jsx";
 import { StatusConfirmModal } from "./StatusConfirmModal.jsx";
 import { money, statusClass } from "../utils/format.js";
@@ -39,15 +40,15 @@ export function OrderTable({ orders, onStatusChange, onReturnStatusChange, onCan
                 <td className="px-4 py-3">
                   <div className="space-y-2">
                     {order.items?.map((item) => (
-                      <div className="flex items-center gap-3" key={item.id}>
+                      <div className="flex items-start gap-3" key={item.id}>
                         <ProductImage className="h-10 w-8 rounded object-contain" src={item.imageUrl} alt={item.name} />
-                        <span>{item.name}{item.selectedSize ? ` · ${item.selectedSize}` : ""}{item.selectedColor ? ` · ${item.selectedColor}` : ""} x{item.quantity}</span>
+                        <span className="min-w-0 flex-1">{item.name}{item.selectedSize ? ` · ${item.selectedSize}` : ""}{item.selectedColor ? ` · ${item.selectedColor}` : ""} x{item.quantity}<span className="mt-2 block"><DeliveryProgress order={order} /></span></span>
                       </div>
                     ))}
                   </div>
                 </td>
                 <td className="px-4 py-3"><p className="font-semibold">{money(order.totalAmount)}</p>{order.discountAmount > 0 && <><p className="text-xs text-neutral-400 line-through">{money(order.subtotalAmount)}</p><p className="text-xs font-semibold text-green-600">-{money(order.discountAmount)}{order.couponCode ? ` · ${order.couponCode}` : ""}</p></>}</td>
-                <td className="px-4 py-3"><span className={`badge ${statusClass(order.status)}`}>{order.status}</span>{order.returnStatus && order.returnStatus !== "none" && <p className="mt-2 text-xs font-semibold capitalize text-clay">Return {order.returnStatus}</p>}</td>
+                <td className="px-4 py-3"><span className={`badge ${statusClass(order.status)}`}>{order.returnStatus === "requested" ? "Returning" : order.status}</span>{order.returnStatus && order.returnStatus !== "none" && <p className="mt-2 text-xs font-semibold capitalize text-clay">Return {order.returnStatus}</p>}</td>
                 <td className="px-4 py-3"><p className="font-semibold capitalize">{order.paymentMethod === "cod" ? "Cash on delivery" : order.paymentMethod}</p><p className="text-xs capitalize text-neutral-500">{order.status === "cancelled" ? "Order Cancelled" : order.paymentStatus}</p></td>
                 {showStatusActions && (
                   <td className="px-4 py-3">

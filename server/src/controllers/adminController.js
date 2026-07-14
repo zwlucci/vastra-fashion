@@ -2,6 +2,7 @@ import { query } from "../config/db.js";
 import { AppError, notFound } from "../utils/errors.js";
 import { serializeUser } from "../utils/serializers.js";
 import { emitDashboardUpdated } from "../socket.js";
+import { dashboardSectionCounts, markDashboardSectionSeen } from "../utils/dashboardSections.js";
 
 export async function listUsers(req, res) {
   const page = Math.max(1, Number(req.query.page || 1));
@@ -97,4 +98,12 @@ export async function getStats(req, res) {
        LIMIT 1) AS popular_category
   `);
   res.json({ stats: rows[0] });
+}
+
+export async function getDashboardUpdates(req, res) {
+  res.json({ updates: await dashboardSectionCounts(req.user) });
+}
+
+export async function markDashboardUpdateSeen(req, res) {
+  res.json({ updates: await markDashboardSectionSeen(req.user, req.params.section) });
 }
