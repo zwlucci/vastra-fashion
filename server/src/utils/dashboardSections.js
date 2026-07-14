@@ -81,7 +81,30 @@ function registryFor(role) {
   throw new AppError("Dashboard updates are only available to admins and vendors.", 403);
 }
 
+let dashboardSectionSeenReady;
+
+async function ensureDashboardSectionSeenTable() {
+  if (!dashboardSectionSeenReady) {
+    dashboardSectionSeenReady = (async () => {
+      await query(`
+        CREATE TABLE IF NOT EXISTS dashboard_section_seen (
+          user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          section_key TEXT NOT NULL,
+          seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (user_id, section_key)
+        )
+      `);
+      await query("CREATE INDEX IF NOT EXISTS idx_dashboard_section_seen_user ON dashboard_section_seen(user_id, section_key)");
+    })().catch((error) => {
+      dashboardSectionSeenReady = undefined;
+      throw error;
+    });
+  }
+  return dashboardSectionSeenReady;
+}
+
 async function seenMap(userId) {
+  await ensureDashboardSectionSeenTable();
   const { rows } = await query("SELECT section_key, seen_at FROM dashboard_section_seen WHERE user_id = $1", [userId]);
   return new Map(rows.map((row) => [row.section_key, row.seen_at]));
 }
@@ -100,6 +123,7 @@ export async function dashboardSectionCounts(user) {
 export async function markDashboardSectionSeen(user, sectionKey) {
   const sections = registryFor(user.role);
   if (!sections[sectionKey]) return dashboardSectionCounts(user);
+  await ensureDashboardSectionSeenTable();
   await query(
     `INSERT INTO dashboard_section_seen (user_id, section_key, seen_at)
      VALUES ($1, $2, NOW())
