@@ -6,7 +6,7 @@ import { money, statusClass } from "../utils/format.js";
 
 const statusOptions = ["pending", "processing", "shipped", "delivered", "cancelled"];
 
-export function OrderTable({ orders, onStatusChange, onReturnStatusChange, onCancel, onReturn, actingOrderId = "" }) {
+export function OrderTable({ orders, onStatusChange, onReturnStatusChange, onCancel, onReturn, onViewDetails, actingOrderId = "" }) {
   const [statusChange, setStatusChange] = useState(null);
   if (!orders.length) return <div className="panel py-10 text-center text-neutral-500">No orders yet.</div>;
   const showStatusActions = Boolean(onStatusChange && orders.some((order) => !["delivered", "cancelled"].includes(order.status)));
@@ -35,7 +35,10 @@ export function OrderTable({ orders, onStatusChange, onReturnStatusChange, onCan
           <tbody>
             {orders.map((order) => (
               <tr className="border-t border-neutral-200 dark:border-neutral-800" key={order.id}>
-                <td className="px-4 py-3 font-mono text-xs">{order.id.slice(0, 8)}</td>
+                <td className="px-4 py-3">
+                  <p className="font-mono text-xs">{order.id.slice(0, 8)}</p>
+                  {onViewDetails && <button className="mt-2 text-xs font-bold text-clay underline-offset-4 hover:underline" onClick={() => onViewDetails(order)} type="button">View details</button>}
+                </td>
                 <td className="px-4 py-3">{order.customerName || "You"}</td>
                 <td className="px-4 py-3">
                   <div className="space-y-2">
@@ -71,6 +74,7 @@ export function OrderTable({ orders, onStatusChange, onReturnStatusChange, onCan
                         : <span className="text-xs text-neutral-500">Return window closed</span>;
                     })()}
                     {order.returnStatus && order.returnStatus !== "none" && <span className="text-xs font-semibold capitalize text-clay">Return {order.returnStatus}</span>}
+                    {onViewDetails && <button className="btn-secondary h-9 px-3" onClick={() => onViewDetails(order)} type="button">View Details</button>}
                   </div>
                 </td>}
                 <td className="px-4 py-3">{new Date(order.createdAt).toLocaleDateString()}</td>

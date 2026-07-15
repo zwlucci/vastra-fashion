@@ -147,8 +147,8 @@ export function VendorDashboard() {
     }
   }
 
-  function startReturnDecision(order, status) {
-    setReturnDecision({ order, status });
+  function startReturnDecision(request, status) {
+    setReturnDecision({ request, status });
     setReturnReason("");
     setMessage("");
   }
@@ -162,8 +162,10 @@ export function VendorDashboard() {
     setSavingReturn(true);
     setMessage("");
     try {
-      await api.patch(`/vendor/returns/${returnDecision.order.id}/decision`, { status: returnDecision.status, reason: returnReason.trim() });
+      const reason = returnReason.trim();
+      await api.patch(`/vendor/returns/${returnDecision.request.id}/decision`, { status: returnDecision.status, reason });
       setMessage(`Return ${returnDecision.status === "approved" ? "accepted" : "rejected"}.`);
+      setReturns((current) => current.map((request) => request.id === returnDecision.request.id ? { ...request, status: returnDecision.status, vendorResponse: reason, decidedAt: new Date().toISOString() } : request));
       setReturnDecision(null);
       await Promise.all([loadReturns(returnPage), loadOrders(), loadDashboardUpdates()]);
     } catch (error) {
@@ -285,7 +287,7 @@ export function VendorDashboard() {
               </div>
               <button className="btn-secondary h-9 w-9 px-0" disabled={savingReturn} onClick={() => setReturnDecision(null)} type="button" title="Close"><X size={16} /></button>
             </div>
-            <p className="text-sm text-neutral-500">Order #{returnDecision.order.id.slice(0, 8)} · {returnDecision.order.items?.map((item) => item.name).join(", ")}</p>
+            <p className="text-sm text-neutral-500">Order #{returnDecision.request.orderId.slice(0, 8)} - {returnDecision.request.item?.name}</p>
             <label className="block space-y-1 text-sm font-semibold">Reason<textarea className="w-full" rows="5" value={returnReason} onChange={(event) => setReturnReason(event.target.value)} /></label>
             <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
               <button className="btn-secondary" disabled={savingReturn} onClick={() => setReturnDecision(null)} type="button">Cancel</button>
@@ -299,19 +301,24 @@ export function VendorDashboard() {
 }
 
 function ReturnedProducts({ returns, meta, page, setPage, onDecision }) {
+  const [filter, setFilter] = useState("all");
+  const filters = ["all", "requested", "approved", "rejected"];
+  const filteredReturns = filter === "all" ? returns : returns.filter((request) => request.status === filter);
   if (!returns.length) return <div className="panel py-10 text-center text-neutral-500">No returned products need attention.</div>;
   const totalPages = meta?.totalPages || 1;
   return <div className="space-y-4">
-    <div><p className="text-sm font-bold uppercase tracking-wide text-clay">Returns</p><h2 className="text-2xl font-black">Returned Products</h2></div>
+    <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-sm font-bold uppercase tracking-wide text-clay">Returns</p><h2 className="text-2xl font-black">Returned Products</h2></div><div className="flex flex-wrap gap-2">{filters.map((name) => <button className={`rounded-lg px-3 py-2 text-sm font-bold capitalize ${filter === name ? "bg-clay text-white" : "bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"}`} key={name} onClick={() => setFilter(name)} type="button">{name}</button>)}</div></div>
+    {!filteredReturns.length && <div className="panel py-8 text-center text-neutral-500">No {filter} return requests on this page.</div>}
     <div className="grid gap-4 xl:grid-cols-2">
-      {returns.map((order) => <article className="panel space-y-4" key={order.id}>
-        <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-mono text-xs text-neutral-500">ORDER #{order.id.slice(0, 8)}</p><h3 className="text-lg font-black">{order.customerName}</h3><p className="text-xs text-neutral-500">{order.customerEmail}</p></div><span className="badge bg-clay/10 text-clay">Return {order.returnStatus}</span></div>
+      {filteredReturns.map((request) => <article className="panel space-y-4" key={request.id}>
+        <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-mono text-xs text-neutral-500">ORDER #{request.orderId.slice(0, 8)}</p><h3 className="text-lg font-black">{request.customerName}</h3><p className="text-xs text-neutral-500">{request.customerEmail}</p><p className="mt-1 font-mono text-xs text-neutral-500">RETURN #{request.id.slice(0, 8)}</p></div><span className="badge bg-clay/10 text-clay">Return {request.status}</span></div>
         <div className="divide-y divide-neutral-200 rounded-lg border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-800">
-          {order.items?.map((item) => <div className="flex gap-3 p-3" key={item.id}><ProductImage className="h-20 w-16 shrink-0 rounded bg-neutral-100 object-contain dark:bg-neutral-950" src={item.imageUrl} alt={item.name} /><div className="min-w-0"><p className="font-bold">{item.name}</p><p className="text-sm text-neutral-500">{item.selectedSize ? `Size ${item.selectedSize} · ` : ""}{item.selectedColor ? `${item.selectedColor} · ` : ""}Quantity {item.quantity}</p><p className="font-semibold">{money(item.priceAtPurchase * item.quantity)}</p></div></div>)}
+          <div className="flex gap-3 p-3"><ProductImage className="h-20 w-16 shrink-0 rounded bg-neutral-100 object-contain dark:bg-neutral-950" src={request.item.imageUrl} alt={request.item.name} /><div className="min-w-0"><p className="font-bold">{request.item.name}</p><p className="text-sm text-neutral-500">{request.item.selectedSize ? `Size ${request.item.selectedSize} - ` : ""}{request.item.selectedColor ? `${request.item.selectedColor} - ` : ""}Quantity {request.item.quantity}</p><p className="text-xs text-neutral-500">{request.item.vendorName || request.item.brand || "Your product"}</p><p className="font-semibold">{money(request.item.priceAtPurchase * request.item.quantity)}</p></div></div>
         </div>
-        <div className="grid gap-3 text-sm sm:grid-cols-2"><Info label="Delivered" value={order.deliveredAt ? new Date(order.deliveredAt).toLocaleDateString() : "Not available"} /><Info label="Requested" value={order.returnRequestedAt ? new Date(order.returnRequestedAt).toLocaleDateString() : "Not available"} /><Info label="Reason" value={order.returnReason || "No reason provided"} /><Info label="Order total" value={money(order.totalAmount)} /></div>
-        {order.returnVendorReason && <p className="rounded-lg bg-clay/10 p-3 text-sm"><strong>Vendor reason:</strong> {order.returnVendorReason}</p>}
-        {order.returnStatus === "requested" && <div className="flex flex-wrap gap-2"><button className="btn-primary" onClick={() => onDecision(order, "approved")} type="button">Accept Return</button><button className="btn-secondary text-red-600" onClick={() => onDecision(order, "rejected")} type="button">Reject Return</button></div>}
+        <div className="grid gap-3 text-sm sm:grid-cols-2"><Info label="Purchased" value={request.orderCreatedAt ? new Date(request.orderCreatedAt).toLocaleDateString() : "Not available"} /><Info label="Delivered" value={request.deliveredAt ? new Date(request.deliveredAt).toLocaleDateString() : "Not available"} /><Info label="Requested" value={request.requestedAt ? new Date(request.requestedAt).toLocaleDateString() : "Not available"} /><Info label="Contact" value={request.phoneNumber || "Not provided"} /><Info label="Reason" value={request.customerReason || "No reason provided"} /><Info label="Order total" value={money(request.totalAmount)} /></div>
+        {request.deliveryAddress && <Info label="Delivery address" value={request.deliveryAddress} />}
+        {request.vendorResponse && <p className="rounded-lg bg-clay/10 p-3 text-sm"><strong>Vendor response:</strong> {request.vendorResponse}</p>}
+        {request.status === "requested" && <div className="space-y-3"><p className="text-sm font-semibold text-neutral-600 dark:text-neutral-300">Add a response in the confirmation modal before saving your decision.</p><div className="flex flex-wrap gap-2"><button className="btn-primary" onClick={() => onDecision(request, "approved")} type="button">Accept Return</button><button className="btn-secondary text-red-600" onClick={() => onDecision(request, "rejected")} type="button">Reject Return</button></div></div>}
       </article>)}
     </div>
     {totalPages > 1 && <Pagination page={page} total={meta.total} onChange={setPage} />}

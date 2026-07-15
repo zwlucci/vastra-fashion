@@ -64,13 +64,14 @@ const vendorSections = {
     params: () => []
   },
   "returned-products": {
-    sql: `SELECT COUNT(DISTINCT orders.id)::int AS count
-          FROM orders
-          JOIN order_items ON order_items.order_id = orders.id
+    sql: `SELECT COUNT(*)::int AS count
+          FROM order_item_return_requests AS returns
+          JOIN order_items ON order_items.id = returns.order_item_id
           JOIN products ON products.id = order_items.product_id
-          WHERE products.vendor_id = $1
-            AND orders.return_status IN ('requested', 'approved')
-            AND COALESCE(orders.return_requested_at, orders.updated_at) > $2`,
+          WHERE returns.vendor_id = $1
+            AND products.vendor_id = $1
+            AND returns.status IN ('requested', 'approved')
+            AND returns.updated_at > $2`,
     params: () => []
   }
 };
