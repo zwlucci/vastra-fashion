@@ -4,7 +4,73 @@ import { sendOrderConfirmationEmail, sendOrderReceiptEmail, sendOrderStatusEmail
 import { emitCartStockInvalidated, emitOrderUpdated, emitProductUpdated } from "../socket.js";
 import { updateStockAlertState } from "./productController.js";
 import { calculateCouponDiscount, getActiveCoupon } from "../utils/coupons.js";
-import { createOrderNotifications } from "../utils/orderNotifications.js";
+import { createOrderNotifications, createOrderNotificationsInTransaction, emitCreatedOrderNotifications } from "../utils/orderNotifications.js";
+
+const RETURN_PRIORITY = ["requested", "approved", "rejected", "completed"];
+
+function statusLabel(status) {
+  return String(status || "").replace(/_/g, " ");
+}
+
+function actorFor(user) {
+  if (!user) return { id: null, role: "system" };
+  return { id: user.id, role: user.role };
+}
+
+async function recordOrderTimeline(client, { orderId, orderItemId = null, actor = null, status, category = "order", note = "", metadata = {} }) {
+  const performer = actorFor(actor);
+  await client.query(
+    `INSERT INTO order_status_history (order_id, order_item_id, actor_id, actor_role, status, status_category, note, metadata)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [orderId, orderItemId, performer.id, performer.role, status, category, note || null, metadata]
+  );
+}
+
+async function syncOrderReturnSummary(client, orderId) {
+  const { rows } = await client.query(
+    `SELECT return_status, return_requested_at, return_reason, return_vendor_response, return_decided_at, returned_at
+     FROM order_items
+     WHERE order_id = $1 AND return_status <> 'none'`,
+    [orderId]
+  );
+  if (!rows.length) {
+    await client.query(
+      `UPDATE orders
+       SET return_status = 'none',
+           return_requested_at = NULL,
+           return_reason = NULL,
+           return_vendor_reason = NULL,
+           return_vendor_id = NULL,
+           return_decided_at = NULL,
+           return_processed_at = NULL
+       WHERE id = $1`,
+      [orderId]
+    );
+    return;
+  }
+
+  const status = RETURN_PRIORITY.find((candidate) => rows.some((row) => row.return_status === candidate)) || rows[0].return_status;
+  const representative = rows.find((row) => row.return_status === status) || rows[0];
+  await client.query(
+    `UPDATE orders
+     SET return_status = $1,
+         return_requested_at = COALESCE($2, return_requested_at),
+         return_reason = COALESCE($3, return_reason),
+         return_vendor_reason = COALESCE($4, return_vendor_reason),
+         return_decided_at = COALESCE($5, return_decided_at),
+         return_processed_at = COALESCE($6, return_processed_at)
+     WHERE id = $7`,
+    [
+      status,
+      representative.return_requested_at,
+      representative.return_reason,
+      representative.return_vendor_response,
+      representative.return_decided_at,
+      representative.returned_at,
+      orderId
+    ]
+  );
+}
 
 function mapOrderRows(rows) {
   const orders = new Map();
@@ -41,7 +107,8 @@ function mapOrderRows(rows) {
         receiptSentAt: row.receipt_sent_at,
         returnReceiptSentAt: row.return_receipt_sent_at,
         createdAt: row.created_at,
-        items: []
+        items: [],
+        timeline: []
       });
     }
     if (row.item_id) {
@@ -56,30 +123,98 @@ function mapOrderRows(rows) {
         selectedSize: row.selected_size || "",
         selectedColor: row.selected_color || "",
         quantity: row.quantity,
-        priceAtPurchase: Number(row.price_at_purchase)
+        priceAtPurchase: Number(row.price_at_purchase),
+        returnRequestId: row.return_request_id || "",
+        returnStatus: row.item_return_status || "none",
+        returnReason: row.item_return_reason || "",
+        returnVendorResponse: row.item_return_vendor_response || "",
+        returnRequestedAt: row.item_return_requested_at,
+        returnDecidedAt: row.item_return_decided_at,
+        returnedAt: row.item_returned_at
       });
     }
   });
-  return [...orders.values()];
+  return [...orders.values()].map((order) => {
+    const itemStatuses = order.items.map((item) => item.returnStatus).filter((status) => status && status !== "none");
+    if ((!order.returnStatus || order.returnStatus === "none") && itemStatuses.length) {
+      order.returnStatus = RETURN_PRIORITY.find((status) => itemStatuses.includes(status)) || itemStatuses[0];
+    }
+    return order;
+  });
 }
 
-async function getOrdersFor(where, params) {
-  const { rows } = await query(
+async function getOrdersFor(where, params, client = null) {
+  const runQuery = client ? client.query.bind(client) : query;
+  const { rows } = await runQuery(
     `SELECT orders.*, users.name AS customer_name, users.email AS customer_email,
             order_items.id AS item_id, order_items.product_id, order_items.quantity,
-            order_items.selected_size, order_items.selected_color, order_items.price_at_purchase, products.name AS product_name,
+            order_items.selected_size, order_items.selected_color, order_items.price_at_purchase,
+            COALESCE(return_requests.id::text, '') AS return_request_id,
+            COALESCE(return_requests.status, order_items.return_status, 'none') AS item_return_status,
+            COALESCE(return_requests.customer_reason, order_items.return_reason, '') AS item_return_reason,
+            COALESCE(return_requests.vendor_response, order_items.return_vendor_response, '') AS item_return_vendor_response,
+            COALESCE(return_requests.requested_at, order_items.return_requested_at) AS item_return_requested_at,
+            COALESCE(return_requests.decided_at, order_items.return_decided_at) AS item_return_decided_at,
+            COALESCE(return_requests.completed_at, order_items.returned_at) AS item_returned_at,
+            products.name AS product_name,
             products.vendor_id AS product_vendor_id, products.brand AS product_brand,
             products.image_url AS product_image_url, vendor_users.name AS product_vendor_name
      FROM orders
      JOIN users ON users.id = orders.user_id
      LEFT JOIN order_items ON order_items.order_id = orders.id
+     LEFT JOIN order_item_return_requests AS return_requests ON return_requests.order_item_id = order_items.id
      LEFT JOIN products ON products.id = order_items.product_id
      LEFT JOIN users AS vendor_users ON vendor_users.id = products.vendor_id
      ${where}
      ORDER BY orders.created_at DESC`,
     params
   );
-  return mapOrderRows(rows);
+  const orders = mapOrderRows(rows);
+  const orderIds = orders.map((order) => order.id);
+  if (orderIds.length) {
+    const history = await runQuery(
+      `SELECT history.*, users.name AS actor_name
+       FROM order_status_history AS history
+       LEFT JOIN users ON users.id = history.actor_id
+       WHERE history.order_id = ANY($1::uuid[])
+       ORDER BY history.created_at ASC, history.id ASC`,
+      [orderIds]
+    );
+    const byOrder = new Map(orderIds.map((id) => [id, []]));
+    history.rows.forEach((row) => {
+      byOrder.get(row.order_id)?.push({
+        id: row.id,
+        orderItemId: row.order_item_id || "",
+        status: row.status,
+        statusName: statusLabel(row.status),
+        category: row.status_category,
+        actorId: row.actor_id || "",
+        actorRole: row.actor_role || "",
+        actorName: row.actor_name || "",
+        note: row.note || "",
+        metadata: row.metadata || {},
+        createdAt: row.created_at
+      });
+    });
+    orders.forEach((order) => {
+      order.timeline = byOrder.get(order.id) || [];
+      if (!order.timeline.length) {
+        order.timeline = [{
+          id: "fallback-created",
+          orderItemId: "",
+          status: "order_placed",
+          statusName: "order placed",
+          category: "order",
+          actorRole: "system",
+          actorName: "",
+          note: "Order placed",
+          metadata: {},
+          createdAt: order.createdAt
+        }];
+      }
+    });
+  }
+  return orders;
 }
 
 async function sendFinalReceiptOnce(orderId, email, detailedOrder) {
@@ -172,6 +307,21 @@ export async function createOrder(req, res) {
         coupon ? Number(coupon.discount_value) : null
       ]
     );
+    await recordOrderTimeline(client, {
+      orderId: created.rows[0].id,
+      actor: req.user,
+      status: "order_placed",
+      category: "order",
+      note: "Order placed"
+    });
+    await recordOrderTimeline(client, {
+      orderId: created.rows[0].id,
+      actor: req.user,
+      status: paymentMethod === "card" ? "payment_confirmed" : "cash_on_delivery_selected",
+      category: "payment",
+      note: paymentMethod === "card" ? "Payment confirmed" : "Cash on delivery selected",
+      metadata: { paymentMethod, paymentStatus: paymentMethod === "card" ? "paid" : "pending" }
+    });
 
     if (saveShippingInfo) {
       await client.query(
@@ -267,12 +417,21 @@ export async function listVendorOrders(req, res) {
   const { rows } = await query(
     `SELECT orders.*, users.name AS customer_name, users.email AS customer_email,
             order_items.id AS item_id, order_items.product_id, order_items.quantity,
-            order_items.selected_size, order_items.selected_color, order_items.price_at_purchase, products.name AS product_name,
+            order_items.selected_size, order_items.selected_color, order_items.price_at_purchase,
+            COALESCE(return_requests.id::text, '') AS return_request_id,
+            COALESCE(return_requests.status, order_items.return_status, 'none') AS item_return_status,
+            COALESCE(return_requests.customer_reason, order_items.return_reason, '') AS item_return_reason,
+            COALESCE(return_requests.vendor_response, order_items.return_vendor_response, '') AS item_return_vendor_response,
+            COALESCE(return_requests.requested_at, order_items.return_requested_at) AS item_return_requested_at,
+            COALESCE(return_requests.decided_at, order_items.return_decided_at) AS item_return_decided_at,
+            COALESCE(return_requests.completed_at, order_items.returned_at) AS item_returned_at,
+            products.name AS product_name,
             products.vendor_id AS product_vendor_id, products.brand AS product_brand,
             products.image_url AS product_image_url
      FROM orders
      JOIN users ON users.id = orders.user_id
      JOIN order_items ON order_items.order_id = orders.id
+     LEFT JOIN order_item_return_requests AS return_requests ON return_requests.order_item_id = order_items.id
      JOIN products ON products.id = order_items.product_id
      WHERE products.vendor_id = $1
      ORDER BY orders.created_at DESC`,
@@ -286,32 +445,67 @@ export async function listVendorReturnRequests(req, res) {
   const limit = Math.min(25, Math.max(1, Number(req.query.limit || 10)));
   const offset = (page - 1) * limit;
   const count = await query(
-    `SELECT COUNT(DISTINCT orders.id)::int AS total
-     FROM orders
-     JOIN order_items ON order_items.order_id = orders.id
+    `SELECT COUNT(*)::int AS total
+     FROM order_item_return_requests AS returns
+     JOIN order_items ON order_items.id = returns.order_item_id
      JOIN products ON products.id = order_items.product_id
-     WHERE products.vendor_id = $1 AND orders.return_status <> 'none'`,
+     WHERE returns.vendor_id = $1 AND products.vendor_id = $1`,
     [req.user.id]
   );
   const { rows } = await query(
-    `SELECT orders.*, users.name AS customer_name, users.email AS customer_email,
-            order_items.id AS item_id, order_items.product_id, order_items.quantity,
-            order_items.selected_size, order_items.selected_color, order_items.price_at_purchase,
-            products.name AS product_name, products.vendor_id AS product_vendor_id,
-            products.brand AS product_brand, products.image_url AS product_image_url,
+    `SELECT returns.id, returns.order_id, returns.order_item_id, returns.status, returns.customer_reason,
+            returns.vendor_response, returns.requested_at, returns.decided_at, returns.completed_at,
+            orders.created_at AS order_created_at, orders.delivered_at, orders.total_amount,
+            orders.delivery_name, orders.delivery_phone, orders.delivery_address,
+            users.name AS customer_name, users.email AS customer_email,
+            order_items.product_id, order_items.quantity, order_items.selected_size,
+            order_items.selected_color, order_items.price_at_purchase,
+            products.name AS product_name, products.brand AS product_brand,
+            products.image_url AS product_image_url, products.vendor_id AS product_vendor_id,
             vendor_users.name AS product_vendor_name
-     FROM orders
+     FROM order_item_return_requests AS returns
+     JOIN orders ON orders.id = returns.order_id
      JOIN users ON users.id = orders.user_id
-     JOIN order_items ON order_items.order_id = orders.id
+     JOIN order_items ON order_items.id = returns.order_item_id
      JOIN products ON products.id = order_items.product_id
      LEFT JOIN users AS vendor_users ON vendor_users.id = products.vendor_id
-     WHERE products.vendor_id = $1 AND orders.return_status <> 'none'
-     ORDER BY COALESCE(orders.return_requested_at, orders.updated_at) DESC
+     WHERE returns.vendor_id = $1 AND products.vendor_id = $1
+     ORDER BY returns.requested_at DESC
      LIMIT $2 OFFSET $3`,
     [req.user.id, limit, offset]
   );
   res.json({
-    returns: mapOrderRows(rows),
+    returns: rows.map((row) => ({
+      id: row.id,
+      orderId: row.order_id,
+      orderItemId: row.order_item_id,
+      status: row.status,
+      customerReason: row.customer_reason || "",
+      vendorResponse: row.vendor_response || "",
+      requestedAt: row.requested_at,
+      decidedAt: row.decided_at,
+      completedAt: row.completed_at,
+      orderCreatedAt: row.order_created_at,
+      deliveredAt: row.delivered_at,
+      totalAmount: Number(row.total_amount),
+      customerName: row.delivery_name || row.customer_name,
+      customerEmail: row.customer_email,
+      phoneNumber: row.delivery_phone || "",
+      deliveryAddress: row.delivery_address || "",
+      item: {
+        id: row.order_item_id,
+        productId: row.product_id,
+        vendorId: row.product_vendor_id,
+        vendorName: row.product_vendor_name || "",
+        name: row.product_name,
+        brand: row.product_brand,
+        imageUrl: row.product_image_url,
+        selectedSize: row.selected_size || "",
+        selectedColor: row.selected_color || "",
+        quantity: row.quantity,
+        priceAtPurchase: Number(row.price_at_purchase)
+      }
+    })),
     meta: { page, limit, total: count.rows[0].total, totalPages: Math.max(1, Math.ceil(count.rows[0].total / limit)) }
   });
 }
@@ -405,6 +599,24 @@ async function applyOrderStatusUpdate({ orderId, status, explanation, actor }) {
        WHERE id = $2 RETURNING *`,
       [status, orderId]
     );
+    await recordOrderTimeline(client, {
+      orderId,
+      actor,
+      status,
+      category: "order",
+      note: explanation || "",
+      metadata: { previousStatus: order.status }
+    });
+    if (status === "delivered" && order.payment_method === "cod") {
+      await recordOrderTimeline(client, {
+        orderId,
+        actor,
+        status: "payment_confirmed",
+        category: "payment",
+        note: "Cash on delivery payment collected",
+        metadata: { paymentMethod: "cod", paymentStatus: "paid" }
+      });
+    }
     return { order: { ...updated.rows[0], customer_email: order.customer_email }, changed: true };
   });
 
@@ -482,6 +694,23 @@ export async function cancelOrder(req, res) {
        WHERE id = $1 RETURNING *`,
       [order.id]
     );
+    await recordOrderTimeline(client, {
+      orderId: order.id,
+      actor: req.user,
+      status: "cancelled",
+      category: "order",
+      note: "Cancelled by customer"
+    });
+    if (order.payment_status === "paid") {
+      await recordOrderTimeline(client, {
+        orderId: order.id,
+        actor: req.user,
+        status: "refund_status",
+        category: "refund",
+        note: "Refund marked for cancelled paid order",
+        metadata: { paymentStatus: "refunded" }
+      });
+    }
     return { order: { ...updated.rows[0], customer_email: order.customer_email }, products };
   });
 
@@ -531,11 +760,46 @@ export async function requestOrderReturn(req, res) {
     if (!deliveredAt || Date.now() - new Date(deliveredAt).getTime() > 7 * 24 * 60 * 60 * 1000) {
       throw new AppError("The 7-day return window has closed.", 409);
     }
+    const itemResult = await client.query(
+      `SELECT order_items.id, order_items.return_status, products.vendor_id
+       FROM order_items
+       LEFT JOIN products ON products.id = order_items.product_id
+       WHERE order_items.order_id = $1
+       FOR UPDATE OF order_items`,
+      [order.id]
+    );
+    if (!itemResult.rows.length) throw new AppError("This order has no returnable items.", 400);
+    if (itemResult.rows.some((item) => item.return_status && item.return_status !== "none")) {
+      throw new AppError("A return request already exists for this order.", 409);
+    }
     const result = await client.query(
       `UPDATE orders SET return_status = 'requested', return_requested_at = NOW(), return_reason = $1
        WHERE id = $2 RETURNING *`,
       [req.body.reason || null, order.id]
     );
+    for (const item of itemResult.rows) {
+      await client.query(
+        `UPDATE order_items
+         SET return_status = 'requested', return_requested_at = NOW(), return_reason = $1
+         WHERE id = $2`,
+        [req.body.reason || null, item.id]
+      );
+      await client.query(
+        `INSERT INTO order_item_return_requests (order_id, order_item_id, user_id, vendor_id, status, customer_reason)
+         VALUES ($1, $2, $3, $4, 'requested', $5)
+         ON CONFLICT (order_item_id) DO NOTHING`,
+        [order.id, item.id, req.user.id, item.vendor_id, req.body.reason || null]
+      );
+      await recordOrderTimeline(client, {
+        orderId: order.id,
+        orderItemId: item.id,
+        actor: req.user,
+        status: "return_requested",
+        category: "return",
+        note: req.body.reason || "",
+        metadata: { vendorId: item.vendor_id }
+      });
+    }
     return result.rows[0];
   });
 
@@ -563,56 +827,85 @@ export async function requestOrderReturn(req, res) {
 export async function updateOrderReturnStatus(req, res) {
   const updated = await withTransaction(async (client) => {
     const result = await client.query(
-      `SELECT orders.*, users.email AS customer_email
-       FROM orders JOIN users ON users.id = orders.user_id
-       WHERE orders.id = $1 FOR UPDATE OF orders`,
+      `SELECT returns.*, orders.user_id, users.email AS customer_email,
+              order_items.product_id, products.vendor_id AS product_vendor_id,
+              products.name AS product_name
+       FROM order_item_return_requests AS returns
+       JOIN orders ON orders.id = returns.order_id
+       JOIN users ON users.id = orders.user_id
+       JOIN order_items ON order_items.id = returns.order_item_id
+       JOIN products ON products.id = order_items.product_id
+       WHERE returns.id = $1
+       FOR UPDATE OF returns, order_items`,
       [req.params.id]
     );
-    const order = result.rows[0];
-    if (!order) throw notFound("Order not found");
-    if (req.user.role !== "vendor") throw new AppError("Only vendors can decide customer return requests.", 403);
-    const ownership = await client.query(
-      `SELECT 1 FROM order_items
-       JOIN products ON products.id = order_items.product_id
-       WHERE order_items.order_id = $1 AND products.vendor_id = $2 LIMIT 1`,
-      [order.id, req.user.id]
-    );
-    if (!ownership.rows[0]) throw notFound("Return request not found or not owned by vendor");
-    if (order.return_status === "none") throw new AppError("This order has no return request.", 409);
-    if (["approved", "rejected", "completed"].includes(order.return_status)) throw new AppError(`This return is already ${order.return_status}.`, 409);
-    if (order.return_status === req.body.status) return { order, customerEmail: order.customer_email, changed: false };
+    const returnRequest = result.rows[0];
+    if (!returnRequest) throw notFound("Return request not found");
+    if (returnRequest.product_vendor_id !== req.user.id || returnRequest.vendor_id !== req.user.id) {
+      throw new AppError("You can only manage returns for products you own.", 403);
+    }
+    if (returnRequest.status !== "requested") {
+      throw new AppError(`This return is already ${returnRequest.status}.`, 409);
+    }
 
     const saved = await client.query(
-      `UPDATE orders
-       SET return_status = $1,
-           return_vendor_reason = $3,
-           return_vendor_id = $4,
-           return_decided_at = NOW(),
-           return_processed_at = CASE WHEN $1 IN ('approved', 'completed') THEN NOW() ELSE return_processed_at END,
-           payment_status = CASE WHEN $1 = 'completed' AND payment_status = 'paid' THEN 'refunded' ELSE payment_status END
-       WHERE id = $2 RETURNING *`,
-      [req.body.status, order.id, req.body.reason, req.user.id]
+      `UPDATE order_item_return_requests
+       SET status = $1,
+           vendor_response = $2,
+           decided_at = NOW()
+       WHERE id = $3
+       RETURNING *`,
+      [req.body.status, req.body.reason, returnRequest.id]
     );
-    return { order: saved.rows[0], customerEmail: order.customer_email, changed: true };
+    await client.query(
+      `UPDATE order_items
+       SET return_status = $1,
+           return_vendor_response = $2,
+           return_decided_at = NOW()
+       WHERE id = $3`,
+      [req.body.status, req.body.reason, returnRequest.order_item_id]
+    );
+    await recordOrderTimeline(client, {
+      orderId: returnRequest.order_id,
+      orderItemId: returnRequest.order_item_id,
+      actor: req.user,
+      status: req.body.status === "approved" ? "return_accepted" : "return_rejected",
+      category: "return",
+      note: req.body.reason,
+      metadata: { returnRequestId: returnRequest.id, productId: returnRequest.product_id }
+    });
+    await syncOrderReturnSummary(client, returnRequest.order_id);
+    await client.query("UPDATE orders SET return_vendor_id = $1 WHERE id = $2", [req.user.id, returnRequest.order_id]);
+    const notifications = await createOrderNotificationsInTransaction(client, [returnRequest.user_id], {
+      orderId: returnRequest.order_id,
+      type: "return_updated",
+      title: req.body.status === "approved" ? "Return accepted" : "Return rejected",
+      message: `Your return request for ${returnRequest.product_name} was ${req.body.status === "approved" ? "accepted" : "rejected"}.`,
+      metadata: {
+        returnRequestId: returnRequest.id,
+        orderItemId: returnRequest.order_item_id,
+        returnStatus: req.body.status,
+        reason: req.body.reason,
+        targetUrl: `/orders`
+      }
+    });
+    return {
+      orderId: returnRequest.order_id,
+      customerEmail: returnRequest.customer_email,
+      returnRequest: saved.rows[0],
+      notifications
+    };
   });
 
-  const detailedOrder = (await getOrdersFor("WHERE orders.id = $1", [req.params.id]))[0];
+  await emitCreatedOrderNotifications(updated.notifications);
+  const detailedOrder = (await getOrdersFor("WHERE orders.id = $1", [updated.orderId]))[0];
   const vendors = await query(
     `SELECT DISTINCT products.vendor_id FROM order_items
      JOIN products ON products.id = order_items.product_id WHERE order_items.order_id = $1`,
-    [req.params.id]
+    [updated.orderId]
   );
-  if (updated.changed) {
-    await createOrderNotifications([detailedOrder.userId, ...vendors.rows.map((row) => row.vendor_id)], {
-      orderId: detailedOrder.id,
-      type: "return_updated",
-      title: "Return status updated",
-      message: `The return for order #${detailedOrder.id.slice(0, 8)} is now ${detailedOrder.returnStatus}.`,
-      metadata: { returnStatus: detailedOrder.returnStatus, reason: detailedOrder.returnVendorReason, targetUrl: `/orders` }
-    });
-  }
 
-  if (["approved", "completed"].includes(detailedOrder.returnStatus)) {
+  if (updated.returnRequest.status === "approved") {
     const claimed = await query(
       `UPDATE orders SET return_receipt_dispatch_started_at = NOW()
        WHERE id = $1 AND return_receipt_sent_at IS NULL

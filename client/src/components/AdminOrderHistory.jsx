@@ -2,18 +2,13 @@ import React, { useEffect, useState } from "react";
 import { Eye } from "lucide-react";
 import { DashboardDetailModal } from "./DashboardDetailModal.jsx";
 import { ProductImage } from "./ProductImage.jsx";
-import { StatusConfirmModal } from "./StatusConfirmModal.jsx";
 import { money, statusClass } from "../utils/format.js";
 
-const statuses = ["pending", "processing", "shipped", "delivered", "cancelled"];
-
-export function AdminOrderHistory({ orders, onStatusChange, focusedOrderId = "" }) {
+export function AdminOrderHistory({ orders, focusedOrderId = "" }) {
   const [selected, setSelected] = useState(null);
-  const [statusChange, setStatusChange] = useState(null);
   useEffect(() => { const order = orders.find((item) => item.id === focusedOrderId); if (order) setSelected(order); }, [focusedOrderId, orders]);
   if (!orders.length) return <div className="panel py-10 text-center text-neutral-500">No orders have been placed yet.</div>;
 
-  function askStatus(order, to) { if (to !== order.status) setStatusChange({ orderId: order.id, from: order.status, to }); }
   return <>
     <div className="grid gap-4 xl:grid-cols-2">
       {orders.map((order) => <article className="panel min-w-0 space-y-4" key={order.id}>
@@ -24,7 +19,7 @@ export function AdminOrderHistory({ orders, onStatusChange, focusedOrderId = "" 
         <button className="btn-secondary w-full" onClick={() => setSelected(order)} type="button"><Eye size={16} /> View details</button>
       </article>)}
     </div>
-    <DashboardDetailModal open={Boolean(selected)} onClose={() => setSelected(null)} eyebrow="Admin order history" title={`Order #${selected?.id?.slice(0, 8) || ""}`} footer={selected && <div className="flex flex-wrap items-center justify-end gap-3">{!["delivered", "cancelled"].includes(selected.status) && <><label className="text-sm font-bold" htmlFor="admin-order-status">Update delivery</label><select id="admin-order-status" value={selected.status} onChange={(event) => askStatus(selected, event.target.value)}>{statuses.map((status) => <option value={status} key={status}>{status}</option>)}</select></>}</div>}>
+    <DashboardDetailModal open={Boolean(selected)} onClose={() => setSelected(null)} eyebrow="Admin order history" title={`Order #${selected?.id?.slice(0, 8) || ""}`}>
       {selected && <div className="space-y-6">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Info label="Customer" value={selected.customerName} /><Info label="Email" value={selected.customerEmail} /><Info label="Phone" value={selected.phoneNumber} /><Info label="Status" value={selected.status} capitalize /></div>
         <div className="grid gap-3 sm:grid-cols-2"><Info label="Delivery address" value={selected.deliveryAddress} /><Info label="Order date" value={new Date(selected.createdAt).toLocaleString()} /><Info label="Payment method" value={selected.paymentMethod === "cod" ? "Cash on delivery" : selected.paymentMethod} capitalize /><Info label="Payment status" value={selected.paymentStatus} capitalize /></div>
@@ -33,7 +28,6 @@ export function AdminOrderHistory({ orders, onStatusChange, focusedOrderId = "" 
         {selected.returnStatus && selected.returnStatus !== "none" && <div className="rounded-lg bg-clay/10 p-4"><p className="font-bold capitalize">Return {selected.returnStatus}</p>{selected.returnReason && <p className="mt-1 text-sm">{selected.returnReason}</p>}</div>}
       </div>}
     </DashboardDetailModal>
-    <StatusConfirmModal change={statusChange} onCancel={() => setStatusChange(null)} onConfirm={async ({ orderId, to }) => { await onStatusChange(orderId, to); setSelected(null); }} />
   </>;
 }
 

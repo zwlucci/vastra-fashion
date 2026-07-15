@@ -30,4 +30,22 @@ export async function createOrderNotifications(recipientIds, notification) {
   }));
 }
 
+export async function createOrderNotificationsInTransaction(client, recipientIds, notification) {
+  const uniqueIds = [...new Set((recipientIds || []).filter(Boolean))];
+  const created = [];
+  for (const userId of uniqueIds) {
+    const { rows } = await client.query(
+      `INSERT INTO order_notifications (user_id, order_id, type, title, message, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [userId, notification.orderId || null, notification.type, notification.title, notification.message, notification.metadata || {}]
+    );
+    created.push({ userId, notification: mapNotification(rows[0]) });
+  }
+  return created;
+}
+
+export async function emitCreatedOrderNotifications(createdNotifications) {
+  await Promise.all((createdNotifications || []).map(({ userId, notification }) => emitOrderNotification(userId, notification)));
+}
+
 export { mapNotification };
