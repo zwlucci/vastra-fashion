@@ -2,6 +2,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight, Heart, MessageSquare, Shirt, Shop
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, getErrorMessage } from "../api/client.js";
+import { BundleImageGrid } from "../components/BundleImageGrid.jsx";
 import { ProductMedia } from "../components/ProductMedia.jsx";
 import { EntityReviews } from "../components/EntityReviews.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -82,6 +83,7 @@ export function ProductDetail() {
   if (!product) return <div className="mx-auto max-w-7xl px-4 py-16">Loading product...</div>;
 
   const wished = isWishlisted(product.id);
+  const isBundle = product.productType === "bundle" || product.isBundle;
   const sizes = product.sizes || [];
   const colors = product.colors || [];
   const hasAvailableColor = !colors.length || colors.some((color) => !product.colorStockStatus?.[color]);
@@ -201,8 +203,12 @@ export function ProductDetail() {
       <div className="grid gap-10 lg:grid-cols-2">
         <div className="space-y-4">
           <div className="relative overflow-hidden rounded-lg shadow-soft">
-            <ProductMedia className="aspect-[4/5] w-full object-cover" media={activeMedia} alt={product.name} controls />
-            {displayedMedia.length > 1 && (
+            {isBundle ? (
+              <BundleImageGrid product={product} className="aspect-[4/5] w-full" />
+            ) : (
+              <ProductMedia className="aspect-[4/5] w-full object-cover" media={activeMedia} alt={product.name} controls />
+            )}
+            {!isBundle && displayedMedia.length > 1 && (
               <>
                 <button className="absolute left-3 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 shadow-soft dark:bg-neutral-900/90" onClick={() => moveImage(-1)} type="button" title="Previous image">
                   <ChevronLeft size={18} />
@@ -213,7 +219,7 @@ export function ProductDetail() {
               </>
             )}
           </div>
-          {displayedMedia.length > 1 && (
+          {!isBundle && displayedMedia.length > 1 && (
             <div className="grid grid-cols-4 gap-3 sm:grid-cols-6">
               {displayedMedia.map((item, index) => (
                 <button className={`overflow-hidden rounded-md border ${index === selectedImageIndex ? "border-clay" : "border-neutral-200 dark:border-neutral-800"}`} onClick={() => setSelectedImageIndex(index)} type="button" key={`${item.url}-${index}`}>

@@ -172,6 +172,34 @@ export const entityReviewSchema = z.object({
   )
 });
 
+export const bundleSchema = z.object({
+  name: z.string().trim().min(2),
+  description: z.string().trim().min(5),
+  componentProductIds: z.array(z.string().uuid()).min(2, "Choose at least two products.").max(4, "Bundles can include at most four products."),
+  discountPercentage: z.coerce.number().min(0).max(100).default(0),
+  sizes: z.array(z.string().refine(isProductSize, "Choose a supported product size")).min(1, "Please select at least one shared size."),
+  stock: z.coerce.number().int().nonnegative(),
+  images: z.array(z.object({
+    color: z.string().optional().default(""),
+    url: z.string().optional().default(""),
+    imageData: z.string().optional().default("")
+  })).default([]),
+  media: z.array(z.object({
+    color: z.string().optional().default(""),
+    url: z.string().optional().default(""),
+    mediaData: z.string().optional().default(""),
+    type: z.enum(["image", "video"]).default("image")
+  })).default([]),
+  imageData: z.string().optional()
+}).superRefine((data, context) => {
+  if (new Set(data.componentProductIds).size !== data.componentProductIds.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "A bundle can only include each product once", path: ["componentProductIds"] });
+  }
+  if (new Set(data.sizes).size !== data.sizes.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Bundle sizes must be unique", path: ["sizes"] });
+  }
+});
+
 export const messageReplySchema = z.object({
   body: z.string().trim().min(1)
 });

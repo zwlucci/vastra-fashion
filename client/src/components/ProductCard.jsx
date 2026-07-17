@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { useCart } from "../context/CartContext.jsx";
 import { useNotification } from "../context/NotificationContext.jsx";
 import { useWishlist } from "../context/WishlistContext.jsx";
+import { BundleImageGrid, formatBundleDiscount } from "./BundleImageGrid.jsx";
 import { ProductMedia } from "./ProductMedia.jsx";
 import { money } from "../utils/format.js";
 import { getErrorMessage } from "../api/client.js";
@@ -31,6 +32,8 @@ export function ProductCard({ product }) {
     ? media.find((item) => item.color?.trim().toLocaleLowerCase() === selectedColor.trim().toLocaleLowerCase())
     : null;
   const primaryMedia = selectedColorMedia || media.find((item) => !item.color?.trim()) || media[0] || { url: product.imageUrl, type: "image" };
+  const isBundle = product.productType === "bundle" || product.isBundle;
+  const discountLabel = isBundle ? formatBundleDiscount(product.bundleDiscountPercentage) : "";
 
   useEffect(() => {
     setLocalStock(product.stock);
@@ -77,10 +80,17 @@ export function ProductCard({ product }) {
     <article className="group overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-soft dark:border-neutral-800 dark:bg-neutral-900">
       <div className="relative overflow-hidden">
         <Link to={`/shop/${product.id}`} state={{ from }}>
-          <ProductMedia className="aspect-[4/5] w-full object-cover transition duration-500 group-hover:scale-105" media={primaryMedia} alt={product.name} />
+          {isBundle ? (
+            <div className="aspect-[4/5] w-full overflow-hidden transition duration-500 group-hover:scale-105">
+              <BundleImageGrid product={product} className="h-full w-full" />
+            </div>
+          ) : (
+            <ProductMedia className="aspect-[4/5] w-full object-cover transition duration-500 group-hover:scale-105" media={primaryMedia} alt={product.name} />
+          )}
         </Link>
+        {discountLabel && <span className="absolute left-3 top-3 z-20 rounded-full bg-clay px-3 py-1 text-xs font-black text-white shadow-soft dark:bg-clay dark:text-white">{discountLabel}</span>}
         <button
-          className={`absolute right-3 top-3 flex h-10 w-10 items-center justify-center rounded-full border border-white/80 bg-white/90 shadow-soft transition hover:text-clay dark:border-neutral-700 dark:bg-neutral-900/90 ${wished ? "text-clay" : "text-neutral-700 dark:text-neutral-200"}`}
+          className={`absolute right-3 top-3 z-20 flex h-10 w-10 items-center justify-center rounded-full border border-white/80 bg-white/90 shadow-soft transition hover:text-clay dark:border-neutral-700 dark:bg-neutral-900/90 ${wished ? "text-clay" : "text-neutral-700 dark:text-neutral-200"}`}
           onClick={handleWishlist}
           type="button"
           title={wished ? "Remove from wishlist" : "Add to wishlist"}

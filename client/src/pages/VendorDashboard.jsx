@@ -1,15 +1,17 @@
-import { AlertTriangle, Banknote, Boxes, PackageCheck, Plus, RotateCcw, X } from "lucide-react";
+import { AlertTriangle, Banknote, Boxes, PackageCheck, PackagePlus, Plus, RotateCcw, X } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import { NavLink, Navigate, useParams } from "react-router-dom";
 import { api, getErrorMessage } from "../api/client.js";
 import { ProductForm } from "../components/ProductForm.jsx";
 import { ProductImage } from "../components/ProductImage.jsx";
 import { VendorOrderTable } from "../components/VendorOrderTable.jsx";
+import { VendorBundleForm } from "../components/VendorBundleForm.jsx";
+import { VendorBundleTable } from "../components/VendorBundleTable.jsx";
 import { VendorProductTable } from "../components/VendorProductTable.jsx";
 import { money } from "../utils/format.js";
 import { useMessages } from "../context/MessageContext.jsx";
 
-const vendorSections = [["income", "Income", Banknote], ["products", "Products", Boxes], ["orders", "Orders for Your Products", PackageCheck], ["returned-products", "Returned Products", RotateCcw]];
+const vendorSections = [["income", "Income", Banknote], ["products", "Products", Boxes], ["bundled-products", "Bundled Products", PackagePlus], ["orders", "Orders for Your Products", PackageCheck], ["returned-products", "Returned Products", RotateCcw]];
 
 function Pagination({ page, total, onChange }) {
   const pages = Math.max(1, Math.ceil(total / 10));
@@ -22,18 +24,27 @@ export function VendorDashboard() {
   const validSection = vendorSections.some(([key]) => key === section);
   const { socket } = useMessages();
   const [products, setProducts] = useState([]);
+  const [bundles, setBundles] = useState([]);
+  const [bundleMeta, setBundleMeta] = useState(null);
+  const [bundleIndicators, setBundleIndicators] = useState({});
   const [orders, setOrders] = useState([]);
   const [returns, setReturns] = useState([]);
   const [returnMeta, setReturnMeta] = useState(null);
   const [dashboardUpdates, setDashboardUpdates] = useState({});
   const [income, setIncome] = useState({ totalIncome: 0, totalOrders: 0, totalItems: 0, recentOrders: [] });
   const [editing, setEditing] = useState(null);
+  const [editingBundle, setEditingBundle] = useState(null);
   const [showForm, setShowForm] = useState(false);
+  const [showBundleForm, setShowBundleForm] = useState(false);
   const [message, setMessage] = useState("");
   const [deletingProduct, setDeletingProduct] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const productFormRef = useRef(null);
+  const bundleFormRef = useRef(null);
   const [productPage, setProductPage] = useState(1);
+  const [bundlePage, setBundlePage] = useState(1);
+  const [bundleSearch, setBundleSearch] = useState("");
+  const [bundleStatus, setBundleStatus] = useState("all");
   const [orderPage, setOrderPage] = useState(1);
   const [returnPage, setReturnPage] = useState(1);
   const [returnDecision, setReturnDecision] = useState(null);
@@ -43,6 +54,16 @@ export function VendorDashboard() {
   async function loadProducts() {
     const { data } = await api.get("/vendor/products");
     setProducts(data.products);
+  }
+
+  async function loadBundles(page = bundlePage, search = bundleSearch, status = bundleStatus) {
+    const params = new URLSearchParams({ page: String(page), limit: "10" });
+    if (search.trim()) params.set("search", search.trim());
+    if (status !== "all") params.set("status", status);
+    const { data } = await api.get(`/vendor/bundled-products?${params.toString()}`);
+    setBundles(data.products || []);
+    setBundleMeta(data.meta || null);
+    setBundleIndicators(data.indicators || {});
   }
 
   async function loadOrders() {
@@ -67,19 +88,25 @@ export function VendorDashboard() {
   }
 
   useEffect(() => {
-    Promise.all([loadProducts(), loadOrders(), loadIncome(), loadReturns(), loadDashboardUpdates()]);
+    Promise.all([loadProducts(), loadBundles(), loadOrders(), loadIncome(), loadReturns(), loadDashboardUpdates()]);
   }, []);
 
-  useEffect(() => { setProductPage(1); setOrderPage(1); setReturnPage(1); api.patch(`/vendor/dashboard-updates/${section}/seen`).then(({ data }) => setDashboardUpdates(data.updates || {})).catch(() => {}); }, [section]);
+  useEffect(() => { setProductPage(1); setBundlePage(1); setOrderPage(1); setReturnPage(1); api.patch(`/vendor/dashboard-updates/${section}/seen`).then(({ data }) => setDashboardUpdates(data.updates || {})).catch(() => {}); }, [section]);
   useEffect(() => { if (section === "returned-products") loadReturns(returnPage).catch(() => {}); }, [returnPage, section]);
+  useEffect(() => { if (section === "bundled-products") loadBundles(bundlePage, bundleSearch, bundleStatus).catch(() => {}); }, [bundlePage, bundleSearch, bundleStatus, section]);
 
   useEffect(() => {
     if (editing && showForm) productFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [editing, showForm]);
 
   useEffect(() => {
+    if (editingBundle && showBundleForm) bundleFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [editingBundle, showBundleForm]);
+
+  useEffect(() => {
     if (!socket) return undefined;
     const refreshProducts = () => loadProducts().catch(() => {});
+    const refreshBundles = () => loadBundles().catch(() => {});
     const refreshOrders = () => Promise.all([loadOrders(), loadIncome()]).catch(() => {});
     let refreshTimer = null;
     const scheduleOrderRefresh = () => {
@@ -91,7 +118,11 @@ export function VendorDashboard() {
       }, 80);
     };
     function handleDashboardUpdate({ scope }) {
-      if (scope === "products") refreshProducts();
+      if (scope === "products") {
+        refreshProducts();
+        refreshBundles();
+      }
+      if (scope === "bundled-products") refreshBundles();
       if (scope === "orders") scheduleOrderRefresh();
     }
     socket.on("dashboard:updated", handleDashboardUpdate);
@@ -129,8 +160,27 @@ export function VendorDashboard() {
     }
   }
 
+  async function submitBundle(payload) {
+    setMessage("");
+    try {
+      if (editingBundle) {
+        await api.put(`/vendor/bundled-products/${editingBundle.id}`, payload);
+        setMessage("Bundle updated.");
+      } else {
+        await api.post("/vendor/bundled-products", payload);
+        setMessage("Bundle submitted for approval.");
+      }
+      setEditingBundle(null);
+      setShowBundleForm(false);
+      setBundlePage(1);
+      await Promise.all([loadBundles(1), loadProducts()]);
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    }
+  }
+
   function requestDeleteProduct(id) {
-    const product = products.find((item) => item.id === id);
+    const product = products.find((item) => item.id === id) || bundles.find((item) => item.id === id);
     setDeletingProduct(product || { id, name: "this product" });
   }
 
@@ -140,6 +190,12 @@ export function VendorDashboard() {
     setShowForm(true);
   }
 
+  function beginEditBundle(bundle) {
+    setMessage("");
+    setEditingBundle(bundle);
+    setShowBundleForm(true);
+  }
+
   async function confirmDeleteProduct() {
     if (!deletingProduct) return;
     setDeleting(true);
@@ -147,8 +203,9 @@ export function VendorDashboard() {
     try {
       await api.delete(`/products/${deletingProduct.id}`);
       setProducts((current) => current.filter((product) => product.id !== deletingProduct.id));
+      setBundles((current) => current.filter((bundle) => bundle.id !== deletingProduct.id));
       setDeletingProduct(null);
-      setMessage("Product deleted.");
+      setMessage(deletingProduct.isBundle ? "Bundle deleted." : "Product deleted.");
     } catch (error) {
       setMessage(getErrorMessage(error));
     } finally {
@@ -221,6 +278,9 @@ export function VendorDashboard() {
         {section === "products" && <button className="btn-primary" onClick={() => { setEditing(null); setShowForm((value) => !value); }} type="button">
           <Plus size={18} /> Add product
         </button>}
+        {section === "bundled-products" && <button className="btn-primary" onClick={() => { setEditingBundle(null); setShowBundleForm((value) => !value); }} type="button">
+          <PackagePlus size={18} /> Create Bundle
+        </button>}
       </div>
       {message && <p className="rounded-md bg-clay/10 p-3 text-sm text-clay">{message}</p>}
       <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
@@ -228,6 +288,7 @@ export function VendorDashboard() {
         <main className="min-w-0 space-y-5">
           <div><p className="text-sm font-bold uppercase tracking-wide text-clay">Dashboard section</p><h2 className="text-3xl font-black">{sectionTitle}</h2></div>
       {section === "products" && (showForm || editing) && <div className="scroll-mt-24" ref={productFormRef}><ProductForm initialProduct={editing} onSubmit={submitProduct} submitLabel={editing ? "Update product" : "Submit product"} /></div>}
+      {section === "bundled-products" && (showBundleForm || editingBundle) && <div className="scroll-mt-24" ref={bundleFormRef}><VendorBundleForm products={products} initialBundle={editingBundle} onSubmit={submitBundle} submitLabel={editingBundle ? "Update bundle" : "Create bundle"} /></div>}
       {section === "income" && <div className="space-y-4">
         <div>
           <p className="text-sm font-bold uppercase tracking-wide text-clay">Income</p>
@@ -268,6 +329,22 @@ export function VendorDashboard() {
         </div>
       </div>}
       {section === "products" && <div><VendorProductTable products={pagedProducts} onEdit={beginEditProduct} onDelete={requestDeleteProduct} /><Pagination page={productPage} total={products.length} onChange={setProductPage} /></div>}
+      {section === "bundled-products" && <div className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {[["Pending bundle approvals", bundleIndicators.pending || 0], ["Approved bundles", bundleIndicators.approved || 0], ["Rejected bundles", bundleIndicators.rejected || 0], ["Low-stock bundles", bundleIndicators.low_stock || 0], ["Unavailable bundles", bundleIndicators.unavailable || 0]].map(([label, value]) => <div className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800" key={label}><p className="text-xs font-bold uppercase tracking-wide text-neutral-500">{label}</p><p className="mt-1 text-2xl font-black">{value}</p></div>)}
+        </div>
+        <div className="flex flex-wrap gap-3 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
+          <input className="min-w-[220px] flex-1" placeholder="Search bundles" value={bundleSearch} onChange={(event) => { setBundleSearch(event.target.value); setBundlePage(1); }} />
+          <select className="min-w-[180px]" value={bundleStatus} onChange={(event) => { setBundleStatus(event.target.value); setBundlePage(1); }}>
+            <option value="all">All statuses</option>
+            <option value="pending">Pending approval</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+          </select>
+        </div>
+        <VendorBundleTable bundles={bundles} onEdit={beginEditBundle} onDelete={requestDeleteProduct} />
+        {bundleMeta && <Pagination page={bundlePage} total={bundleMeta.total} onChange={setBundlePage} />}
+      </div>}
       {section === "orders" && <div className="space-y-4">
         <div>
           <p className="text-sm font-bold uppercase tracking-wide text-clay">Delivery</p>
