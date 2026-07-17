@@ -1,5 +1,6 @@
 import { Edit, Eye, Info, Package, Trash2 } from "lucide-react";
 import React, { useState } from "react";
+import { BundleImageGrid } from "./BundleImageGrid.jsx";
 import { DashboardDetailModal } from "./DashboardDetailModal.jsx";
 import { ProductImage } from "./ProductImage.jsx";
 import { money, statusClass } from "../utils/format.js";
@@ -9,20 +10,6 @@ function approvalLabel(bundle) {
   if (bundle.status === "approved" && Number(bundle.stock || 0) > 0) return "Approved";
   if (bundle.status === "rejected") return "Rejected";
   return "Disabled or unavailable";
-}
-
-function BundleImageGrid({ bundle, className = "" }) {
-  const components = bundle.bundleComponents || [];
-  if (bundle.imageUrl && !components.length) {
-    return <ProductImage className={className} src={bundle.imageUrl} alt={bundle.name} />;
-  }
-  return (
-    <div className={`grid grid-cols-2 gap-1 bg-neutral-100 p-1 dark:bg-neutral-950 ${className}`}>
-      {(components.length ? components : [{ id: bundle.id, imageUrl: bundle.imageUrl, name: bundle.name }]).slice(0, 4).map((product) => (
-        <ProductImage className="h-full w-full rounded object-cover" src={product.imageUrl} alt={product.name} key={product.id} />
-      ))}
-    </div>
-  );
 }
 
 function Detail({ label, value }) {
@@ -38,7 +25,7 @@ export function VendorBundleTable({ bundles, onEdit, onDelete }) {
       {bundles.map((bundle) => (
         <article className="panel flex min-w-0 flex-col overflow-hidden p-0 transition hover:-translate-y-0.5 hover:border-clay" key={bundle.id}>
           <button className="block w-full text-left" onClick={() => setSelected(bundle)} type="button">
-            <BundleImageGrid bundle={bundle} className="aspect-[16/9] w-full" />
+            <BundleImageGrid product={bundle} className="aspect-[16/9] w-full" />
           </button>
           <div className="flex flex-1 flex-col p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -69,7 +56,7 @@ export function VendorBundleTable({ bundles, onEdit, onDelete }) {
     </div>
     <DashboardDetailModal open={Boolean(selected)} onClose={() => setSelected(null)} eyebrow="Bundled product" title={selected?.name || "Bundle"} footer={selected && <div className="flex flex-wrap justify-end gap-2">{onEdit && selected.status !== "rejected" && <button className="btn-secondary" onClick={() => { const bundle = selected; setSelected(null); onEdit(bundle); }} type="button"><Edit size={16} /> Edit bundle</button>}{onDelete && <button className="btn-secondary text-red-600" onClick={() => { const id = selected.id; setSelected(null); onDelete(id); }} type="button"><Trash2 size={16} /> Delete bundle</button>}</div>}>
       {selected && <div className="grid gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
-        <BundleImageGrid bundle={selected} className="aspect-square w-full rounded-lg" />
+        <BundleImageGrid product={selected} className="aspect-square w-full rounded-lg" />
         <div className="min-w-0 space-y-5">
           <div className="flex flex-wrap items-center gap-3"><p className="text-2xl font-black">{money(selected.price)}</p><span className={`badge ${statusClass(selected.status)}`}>{approvalLabel(selected)}</span></div>
           <div className="grid gap-3 sm:grid-cols-2"><Detail label="Included products" value={`${selected.bundleComponents?.length || 0}`} /><Detail label="Original total" value={money(selected.bundleOriginalPrice ?? selected.price)} /><Detail label="Discount" value={`${selected.bundleDiscountPercentage || 0}%`} /><Detail label="Final price" value={money(selected.price)} /><Detail label="Bundle stock" value={selected.stock} /><Detail label="Shared sizes" value={selected.sizes?.join(", ")} /><Detail label="Created" value={new Date(selected.createdAt).toLocaleString()} /><Detail label="Approval" value={approvalLabel(selected)} /></div>

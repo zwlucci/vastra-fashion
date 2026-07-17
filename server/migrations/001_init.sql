@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS products (
   product_type TEXT NOT NULL DEFAULT 'normal' CHECK (product_type IN ('normal', 'bundle')),
   bundle_original_price NUMERIC(10, 2),
   bundle_discount_percentage NUMERIC(5, 2) NOT NULL DEFAULT 0 CHECK (bundle_discount_percentage >= 0 AND bundle_discount_percentage <= 100),
+  custom_bundle_image_url TEXT,
   status product_status NOT NULL DEFAULT 'pending',
   rejection_reason TEXT,
   low_stock_alert_sent BOOLEAN NOT NULL DEFAULT false,
@@ -203,7 +204,8 @@ ALTER TABLE products
   ADD COLUMN IF NOT EXISTS color_stock_status JSONB NOT NULL DEFAULT '{}'::jsonb,
   ADD COLUMN IF NOT EXISTS product_type TEXT NOT NULL DEFAULT 'normal',
   ADD COLUMN IF NOT EXISTS bundle_original_price NUMERIC(10, 2),
-  ADD COLUMN IF NOT EXISTS bundle_discount_percentage NUMERIC(5, 2) NOT NULL DEFAULT 0;
+  ADD COLUMN IF NOT EXISTS bundle_discount_percentage NUMERIC(5, 2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS custom_bundle_image_url TEXT;
 
 ALTER TABLE products
   ADD COLUMN IF NOT EXISTS wardrobe_enabled BOOLEAN NOT NULL DEFAULT false,

@@ -1,6 +1,7 @@
 import { HeartOff } from "lucide-react";
 import React, { useEffect } from "react";
 import { Link } from "react-router-dom";
+import { BundleImageGrid, formatBundleDiscount } from "../components/BundleImageGrid.jsx";
 import { ProductImage } from "../components/ProductImage.jsx";
 import { GuestAccessCard } from "../components/GuestAccessCard.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -36,9 +37,12 @@ export function Wishlist() {
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {items.map((item) => (
             <article className="overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-soft dark:border-neutral-800 dark:bg-neutral-900" key={item.id}>
-              <Link to={`/shop/${item.product.id}`} state={{ from: "/wishlist" }}>
-                <ProductImage className="aspect-[4/5] w-full object-cover" src={item.product.imageUrl} alt={item.product.name} />
-              </Link>
+              <div className="relative overflow-hidden">
+                <Link to={`/shop/${item.product.id}`} state={{ from: "/wishlist" }}>
+                  {item.product.isBundle ? <BundleImageGrid product={item.product} className="aspect-[4/5] w-full" /> : <ProductImage className="aspect-[4/5] w-full object-cover" src={item.product.imageUrl} alt={item.product.name} />}
+                </Link>
+                {item.product.isBundle && formatBundleDiscount(item.product.bundleDiscountPercentage) && <span className="absolute left-3 top-3 z-20 rounded-full bg-clay px-3 py-1 text-xs font-black text-white shadow-soft dark:bg-clay dark:text-white">{formatBundleDiscount(item.product.bundleDiscountPercentage)}</span>}
+              </div>
               <div className="space-y-3 p-4">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-clay">{item.product.brand}</p>

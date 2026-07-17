@@ -1,11 +1,40 @@
 import { query } from "../config/db.js";
 import { notFound } from "../utils/errors.js";
+import { serializeProduct } from "../utils/serializers.js";
 
 async function getWishlistRows(userId) {
   const { rows } = await query(
-    `SELECT wishlist_items.id, wishlist_items.created_at,
-            products.id AS product_id, products.name, products.price, products.brand,
-            products.category, products.gender, products.image_url, products.stock
+    `SELECT wishlist_items.id AS wishlist_id, wishlist_items.created_at AS wishlist_created_at,
+            products.*,
+            COALESCE((
+              SELECT jsonb_agg(jsonb_build_object(
+                'id', components.id,
+                'componentProductId', components.id,
+                'name', components.name,
+                'componentProductName', components.name,
+                'price', components.price,
+                'imageUrl', COALESCE((
+                  SELECT media_item.value->>'url'
+                  FROM jsonb_array_elements(COALESCE(components.product_images, '[]'::jsonb)) AS media_item(value)
+                  WHERE media_item.value ? 'url' AND COALESCE(media_item.value->>'type', 'image') = 'image'
+                  LIMIT 1
+                ), components.image_url),
+                'primaryImage', COALESCE((
+                  SELECT media_item.value->>'url'
+                  FROM jsonb_array_elements(COALESCE(components.product_images, '[]'::jsonb)) AS media_item(value)
+                  WHERE media_item.value ? 'url' AND COALESCE(media_item.value->>'type', 'image') = 'image'
+                  LIMIT 1
+                ), components.image_url),
+                'stock', components.stock,
+                'sizes', components.sizes,
+                'status', components.status,
+                'productType', components.product_type,
+                'sortOrder', product_bundle_items.position
+              ) ORDER BY product_bundle_items.position)
+              FROM product_bundle_items
+              JOIN products AS components ON components.id = product_bundle_items.component_product_id
+              WHERE product_bundle_items.bundle_product_id = products.id
+            ), '[]'::jsonb) AS bundle_components
      FROM wishlist_items
      JOIN products ON products.id = wishlist_items.product_id
      WHERE wishlist_items.user_id = $1 AND products.status = 'approved'
@@ -13,20 +42,14 @@ async function getWishlistRows(userId) {
     [userId]
   );
 
-  return rows.map((row) => ({
-    id: row.id,
-    createdAt: row.created_at,
-    product: {
-      id: row.product_id,
-      name: row.name,
-      price: Number(row.price),
-      brand: row.brand,
-      category: row.category,
-      gender: row.gender,
-      imageUrl: row.image_url,
-      stock: row.stock
-    }
-  }));
+  return rows.map((row) => {
+    const { wishlist_id, wishlist_created_at, ...product } = row;
+    return {
+      id: wishlist_id,
+      createdAt: wishlist_created_at,
+      product: serializeProduct(product)
+    };
+  });
 }
 
 export async function getWishlist(req, res) {

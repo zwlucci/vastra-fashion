@@ -21,15 +21,29 @@ function productSelect(extra = "") {
                  COALESCE((
                    SELECT jsonb_agg(jsonb_build_object(
                      'id', components.id,
+                     'componentProductId', components.id,
                      'name', components.name,
+                     'componentProductName', components.name,
                      'price', components.price,
                      'category', components.category,
-                     'imageUrl', components.image_url,
+                     'imageUrl', COALESCE((
+                       SELECT media_item.value->>'url'
+                       FROM jsonb_array_elements(COALESCE(components.product_images, '[]'::jsonb)) AS media_item(value)
+                       WHERE media_item.value ? 'url' AND COALESCE(media_item.value->>'type', 'image') = 'image'
+                       LIMIT 1
+                     ), components.image_url),
+                     'primaryImage', COALESCE((
+                       SELECT media_item.value->>'url'
+                       FROM jsonb_array_elements(COALESCE(components.product_images, '[]'::jsonb)) AS media_item(value)
+                       WHERE media_item.value ? 'url' AND COALESCE(media_item.value->>'type', 'image') = 'image'
+                       LIMIT 1
+                     ), components.image_url),
                      'stock', components.stock,
                      'sizes', components.sizes,
                      'status', components.status,
                      'vendorId', components.vendor_id,
-                     'productType', components.product_type
+                     'productType', components.product_type,
+                     'sortOrder', product_bundle_items.position
                    ) ORDER BY product_bundle_items.position)
                    FROM product_bundle_items
                    JOIN products AS components ON components.id = product_bundle_items.component_product_id
@@ -45,7 +59,7 @@ function vendorBrand(user) {
 
 function firstProductImage(product) {
   const media = Array.isArray(product.product_images) ? product.product_images : [];
-  return media.find((item) => item?.url && (!item.type || item.type === "image"))?.url || "";
+  return media.find((item) => item?.url && (!item.type || item.type === "image"))?.url || product.custom_bundle_image_url || product.image_url || "";
 }
 
 function minEffectivePrice(product) {
@@ -54,6 +68,11 @@ function minEffectivePrice(product) {
   const prices = Object.values(sizePrices).map(Number).filter((value) => Number.isFinite(value) && value >= 0);
   prices.push(base);
   return Math.min(...prices);
+}
+
+function componentPrimaryImage(product) {
+  const media = Array.isArray(product.product_images) ? product.product_images : [];
+  return media.find((item) => item?.url && (!item.type || item.type === "image"))?.url || product.image_url || "";
 }
 
 function roundCurrency(value) {
@@ -115,21 +134,19 @@ function assertBundleConfiguration({ components, sizes, stock, discountPercentag
   return { originalPrice, finalPrice, maxStock, sharedSizes };
 }
 
-async function buildBundleMedia(payload, components, fallbackMedia = []) {
-  const media = await buildProductMedia(payload, fallbackMedia);
-  if (media.length) return media;
+function hasCustomBundleMediaInput({ media = [], images = [], imageData }) {
+  return Boolean(imageData || images.some((item) => item.imageData || item.url) || media.some((item) => item.mediaData || item.url));
+}
 
-  const componentImages = components
-    .flatMap((component) => {
-      const stored = Array.isArray(component.product_images) ? component.product_images : [];
-      return stored.length ? stored : [{ url: component.image_url, type: "image", color: "" }];
-    })
-    .filter((item) => item?.url)
-    .slice(0, 4)
-    .map((item) => ({ ...item, color: "", type: item.type || "image" }));
+async function buildCustomBundleMedia(payload, fallbackMedia = []) {
+  if (!hasCustomBundleMediaInput(payload)) {
+    return fallbackMedia.map((item) => ({ ...item, type: item.type || "image" }));
+  }
+  return buildProductMedia(payload);
+}
 
-  if (!componentImages.length) throw new AppError("At least one bundle image or component image is required", 400);
-  return componentImages;
+function bundleFallbackImage(components) {
+  return components.map(componentPrimaryImage).find(Boolean);
 }
 
 async function notifyWishlistPriceDrop(previous, current) {
@@ -343,8 +360,10 @@ export async function createBundle(req, res) {
   const product = await withTransaction(async (client) => {
     const components = await getBundleComponentProducts(client, componentProductIds, vendorId);
     const bundle = assertBundleConfiguration({ components, sizes, stock, discountPercentage });
-    const productMedia = await buildBundleMedia({ media, images, imageData }, components);
-    const mainImageUrl = productMedia[0]?.url;
+    const productMedia = await buildCustomBundleMedia({ media, images, imageData });
+    const customBundleImageUrl = productMedia.find((item) => item.url && (!item.type || item.type === "image"))?.url || null;
+    const mainImageUrl = customBundleImageUrl || bundleFallbackImage(components);
+    if (!mainImageUrl) throw new AppError("At least one bundle image or component image is required", 400);
     const gender = components.every((component) => component.gender === components[0].gender) ? components[0].gender : "Unisex";
     const category = components.every((component) => component.category === components[0].category) ? components[0].category : "Clothing";
 
@@ -352,8 +371,8 @@ export async function createBundle(req, res) {
       `INSERT INTO products
          (vendor_id, name, description, price, category, gender, brand, sizes, size_prices, colors,
           color_stock_status, stock, image_url, product_images, status, product_type, bundle_original_price,
-          bundle_discount_percentage)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '{}'::jsonb, '{}'::text[], '{}'::jsonb, $9, $10, $11, 'pending', 'bundle', $12, $13)
+          bundle_discount_percentage, custom_bundle_image_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '{}'::jsonb, '{}'::text[], '{}'::jsonb, $9, $10, $11, 'pending', 'bundle', $12, $13, $14)
        RETURNING *`,
       [
         vendorId,
@@ -368,7 +387,8 @@ export async function createBundle(req, res) {
         mainImageUrl,
         JSON.stringify(productMedia),
         bundle.originalPrice,
-        discountPercentage
+        discountPercentage,
+        customBundleImageUrl
       ]
     );
 
@@ -434,7 +454,7 @@ export async function updateBundle(req, res) {
   const product = await withTransaction(async (client) => {
     const existing = await client.query(
       `SELECT id, vendor_id, status, product_images, image_url, name, description, sizes, stock,
-              bundle_discount_percentage
+              bundle_discount_percentage, custom_bundle_image_url
        FROM products
        WHERE id = $1 AND vendor_id = $2 AND product_type = 'bundle'
        FOR UPDATE`,
@@ -452,8 +472,11 @@ export async function updateBundle(req, res) {
     const previousComponentIds = previousItems.rows.map((row) => row.component_product_id);
     const components = await getBundleComponentProducts(client, componentProductIds, vendorId);
     const bundle = assertBundleConfiguration({ components, sizes, stock, discountPercentage });
-    const productMedia = await buildBundleMedia({ media, images, imageData }, components, existing.rows[0].product_images || []);
-    const mainImageUrl = productMedia[0]?.url || existing.rows[0].image_url;
+    const existingCustomMedia = existing.rows[0].custom_bundle_image_url ? existing.rows[0].product_images || [] : [];
+    const productMedia = await buildCustomBundleMedia({ media, images, imageData }, existingCustomMedia);
+    const customBundleImageUrl = productMedia.find((item) => item.url && (!item.type || item.type === "image"))?.url || null;
+    const mainImageUrl = customBundleImageUrl || bundleFallbackImage(components);
+    if (!mainImageUrl) throw new AppError("At least one bundle image or component image is required", 400);
     const gender = components.every((component) => component.gender === components[0].gender) ? components[0].gender : "Unisex";
     const category = components.every((component) => component.category === components[0].category) ? components[0].category : "Clothing";
     const customMediaChanged = Boolean(imageData || images?.some((item) => item.imageData) || media?.some((item) => item.mediaData));
@@ -470,7 +493,7 @@ export async function updateBundle(req, res) {
        SET name = $2, description = $3, price = $4, category = $5, gender = $6, brand = $7,
            sizes = $8, stock = $9, image_url = $10, product_images = $11,
            status = $12, rejection_reason = CASE WHEN $12 = 'pending' THEN NULL ELSE rejection_reason END,
-           bundle_original_price = $13, bundle_discount_percentage = $14
+           bundle_original_price = $13, bundle_discount_percentage = $14, custom_bundle_image_url = $16
        WHERE id = $1 AND vendor_id = $15 AND product_type = 'bundle'
        RETURNING *`,
       [
@@ -488,7 +511,8 @@ export async function updateBundle(req, res) {
         nextStatus,
         bundle.originalPrice,
         discountPercentage,
-        vendorId
+        vendorId,
+        customBundleImageUrl
       ]
     );
 
