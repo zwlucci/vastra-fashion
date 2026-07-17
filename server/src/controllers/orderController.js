@@ -1,10 +1,11 @@
 import { query, withTransaction } from "../config/db.js";
 import { AppError, notFound } from "../utils/errors.js";
 import { sendOrderConfirmationEmail, sendOrderReceiptEmail, sendOrderStatusEmail, sendReturnReceiptEmail } from "../utils/mailer.js";
-import { emitCartStockInvalidated, emitOrderUpdated, emitProductUpdated } from "../socket.js";
+import { emitCartStockInvalidated, emitOrderCreated, emitOrderStatusUpdated, emitOrderUpdated, emitOrderUserCancelled, emitOrderVendorCancelled, emitProductUpdated } from "../socket.js";
 import { updateStockAlertState } from "./productController.js";
 import { calculateCouponDiscount, getActiveCoupon } from "../utils/coupons.js";
 import { createOrderNotifications, createOrderNotificationsInTransaction, emitCreatedOrderNotifications } from "../utils/orderNotifications.js";
+import { assertForwardOrderTransition, assertOrderCancellable } from "../utils/orderStatusTransitions.js";
 
 const RETURN_PRIORITY = ["requested", "approved", "rejected", "completed"];
 
@@ -367,7 +368,7 @@ export async function createOrder(req, res) {
     [order.order.id]
   );
   const detailedOrder = (await getOrdersFor("WHERE orders.id = $1", [order.order.id]))[0];
-  emitOrderUpdated(detailedOrder, vendorResult.rows.map((row) => row.vendor_id));
+  emitOrderCreated(detailedOrder, vendorResult.rows.map((row) => row.vendor_id));
 
   try {
     const adminResult = await query("SELECT id FROM users WHERE role = 'admin'");
@@ -560,6 +561,7 @@ export async function getOrder(req, res) {
 }
 
 async function applyOrderStatusUpdate({ orderId, status, explanation, actor }) {
+  const requestedStatus = String(status || "").trim().toLowerCase();
   const result = await withTransaction(async (client) => {
     const orderResult = await client.query(
       `SELECT orders.*, users.email AS customer_email
@@ -580,10 +582,8 @@ async function applyOrderStatusUpdate({ orderId, status, explanation, actor }) {
       if (!ownership.rows[0]) throw notFound("Order not found or not owned by vendor");
     }
 
-    if (order.status === status) return { order, changed: false };
-    if (["delivered", "cancelled"].includes(order.status)) {
-      throw new AppError(`This order is finalized as ${order.status} and cannot be updated.`, 409);
-    }
+    if (order.status === requestedStatus) return { order, changed: false };
+    assertForwardOrderTransition(order.status, requestedStatus, order.return_status);
 
     const updated = await client.query(
       `UPDATE orders
@@ -596,18 +596,18 @@ async function applyOrderStatusUpdate({ orderId, status, explanation, actor }) {
              WHEN $1::order_status = 'delivered'::order_status AND payment_method = 'cod' THEN 'paid'
              ELSE payment_status
            END
-       WHERE id = $2 RETURNING *`,
-      [status, orderId]
+      WHERE id = $2 RETURNING *`,
+      [requestedStatus, orderId]
     );
     await recordOrderTimeline(client, {
       orderId,
       actor,
-      status,
+      status: requestedStatus,
       category: "order",
       note: explanation || "",
       metadata: { previousStatus: order.status }
     });
-    if (status === "delivered" && order.payment_method === "cod") {
+    if (requestedStatus === "delivered" && order.payment_method === "cod") {
       await recordOrderTimeline(client, {
         orderId,
         actor,
@@ -631,22 +631,22 @@ async function applyOrderStatusUpdate({ orderId, status, explanation, actor }) {
     const detailedOrder = (await getOrdersFor("WHERE orders.id = $1", [orderId]))[0];
     await createOrderNotifications([detailedOrder.userId], {
       orderId,
-      type: status === "cancelled" ? "order_cancelled" : "status_updated",
-      title: status === "cancelled" ? "Order cancelled" : "Delivery status updated",
-      message: `Order #${orderId.slice(0, 8)} is now ${status}.`,
-      metadata: { status, explanation }
+      type: "status_updated",
+      title: "Delivery status updated",
+      message: `Order #${orderId.slice(0, 8)} is now ${requestedStatus}.`,
+      metadata: { status: requestedStatus, explanation }
     });
 
     try {
-      if (status === "delivered" && detailedOrder.paymentMethod === "cod") {
-        await sendFinalReceiptOnce(orderId, result.order.customer_email, { ...detailedOrder, status, explanation });
+      if (requestedStatus === "delivered" && detailedOrder.paymentMethod === "cod") {
+        await sendFinalReceiptOnce(orderId, result.order.customer_email, { ...detailedOrder, status: requestedStatus, explanation });
       } else {
-        await sendOrderStatusEmail(result.order.customer_email, { ...detailedOrder, status, explanation });
+        await sendOrderStatusEmail(result.order.customer_email, { ...detailedOrder, status: requestedStatus, explanation });
       }
     } catch (error) {
       console.error(`[VASTRA order status email] ${error.message}`);
     }
-    emitOrderUpdated(detailedOrder, vendors.rows.map((row) => row.vendor_id));
+    emitOrderStatusUpdated(detailedOrder, vendors.rows.map((row) => row.vendor_id));
     return detailedOrder;
   }
 
@@ -661,19 +661,36 @@ async function applyOrderStatusUpdate({ orderId, status, explanation, actor }) {
   return detailedOrder;
 }
 
-export async function cancelOrder(req, res) {
+async function applyOrderCancellation({ orderId, actor, cancelledBy }) {
   const result = await withTransaction(async (client) => {
     const orderResult = await client.query(
       `SELECT orders.*, users.email AS customer_email
        FROM orders JOIN users ON users.id = orders.user_id
-       WHERE orders.id = $1 AND orders.user_id = $2 FOR UPDATE OF orders`,
-      [req.params.id, req.user.id]
+       WHERE orders.id = $1 FOR UPDATE OF orders`,
+      [orderId]
     );
     const order = orderResult.rows[0];
     if (!order) throw notFound("Order not found");
-    if (!["pending", "processing"].includes(order.status)) {
-      throw new AppError("Only pending or processing orders can be cancelled.", 409);
+    if (cancelledBy === "customer" && order.user_id !== actor.id) {
+      throw notFound("Order not found");
     }
+    if (cancelledBy === "vendor") {
+      const ownership = await client.query(
+        `SELECT
+           COUNT(*)::int AS total_items,
+           COUNT(*) FILTER (WHERE products.vendor_id = $2)::int AS vendor_items
+         FROM order_items
+         JOIN products ON products.id = order_items.product_id
+         WHERE order_items.order_id = $1`,
+        [order.id, actor.id]
+      );
+      const { total_items: totalItems, vendor_items: vendorItems } = ownership.rows[0];
+      if (!vendorItems) throw notFound("Order not found or not owned by vendor");
+      if (vendorItems !== totalItems) {
+        throw new AppError("This order includes products from another vendor and cannot be cancelled by a single vendor.", 403);
+      }
+    }
+    assertOrderCancellable(order, cancelledBy === "vendor" ? "vendor" : "user");
 
     const itemTotals = await client.query(
       `SELECT product_id, SUM(quantity)::int AS quantity
@@ -696,15 +713,15 @@ export async function cancelOrder(req, res) {
     );
     await recordOrderTimeline(client, {
       orderId: order.id,
-      actor: req.user,
+      actor,
       status: "cancelled",
       category: "order",
-      note: "Cancelled by customer"
+      note: cancelledBy === "vendor" ? "Cancelled by vendor" : "Cancelled by customer"
     });
     if (order.payment_status === "paid") {
       await recordOrderTimeline(client, {
         orderId: order.id,
-        actor: req.user,
+        actor,
         status: "refund_status",
         category: "refund",
         note: "Refund marked for cancelled paid order",
@@ -722,25 +739,48 @@ export async function cancelOrder(req, res) {
   const vendors = await query(
     `SELECT DISTINCT products.vendor_id FROM order_items
      JOIN products ON products.id = order_items.product_id WHERE order_items.order_id = $1`,
-    [req.params.id]
+    [orderId]
   );
-  const detailedOrder = (await getOrdersFor("WHERE orders.id = $1", [req.params.id]))[0];
-  emitOrderUpdated(detailedOrder, vendors.rows.map((row) => row.vendor_id));
+  const detailedOrder = (await getOrdersFor("WHERE orders.id = $1", [orderId]))[0];
+  const vendorIds = vendors.rows.map((row) => row.vendor_id);
+  if (cancelledBy === "vendor") {
+    emitOrderVendorCancelled(detailedOrder, vendorIds);
+  } else {
+    emitOrderUserCancelled(detailedOrder, vendorIds);
+  }
   try {
     const admins = await query("SELECT id FROM users WHERE role = 'admin'");
     await Promise.all([
-      createOrderNotifications([detailedOrder.userId, ...vendors.rows.map((row) => row.vendor_id), ...admins.rows.map((row) => row.id)], {
+      createOrderNotifications([detailedOrder.userId, ...vendorIds, ...admins.rows.map((row) => row.id)], {
         orderId: detailedOrder.id,
         type: "order_cancelled",
         title: "Order cancelled",
-        message: `Order #${detailedOrder.id.slice(0, 8)} was cancelled by the customer.`,
+        message: `Order #${detailedOrder.id.slice(0, 8)} was cancelled by the ${cancelledBy}.`,
         metadata: { status: "cancelled", paymentStatus: detailedOrder.paymentStatus }
       }),
-      sendOrderStatusEmail(result.order.customer_email, { ...detailedOrder, status: "cancelled", explanation: "Cancelled by customer." })
+      sendOrderStatusEmail(result.order.customer_email, { ...detailedOrder, status: "cancelled", explanation: `Cancelled by ${cancelledBy}.` })
     ]);
   } catch (error) {
     console.error(`[VASTRA order cancellation notice] ${error.message}`);
   }
+  return detailedOrder;
+}
+
+export async function cancelOrder(req, res) {
+  const detailedOrder = await applyOrderCancellation({
+    orderId: req.params.id,
+    actor: req.user,
+    cancelledBy: "customer"
+  });
+  res.json({ order: detailedOrder, message: "Order cancelled successfully." });
+}
+
+export async function cancelVendorOrder(req, res) {
+  const detailedOrder = await applyOrderCancellation({
+    orderId: req.params.id,
+    actor: req.user,
+    cancelledBy: "vendor"
+  });
   res.json({ order: detailedOrder, message: "Order cancelled successfully." });
 }
 

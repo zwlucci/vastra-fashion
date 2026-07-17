@@ -9,7 +9,7 @@ import {
   updateProduct
 } from "../controllers/productController.js";
 import { getDashboardUpdates, markDashboardUpdateSeen } from "../controllers/adminController.js";
-import { getVendorIncomeSummary, listVendorOrders, listVendorReturnRequests, updateOrderReturnStatus, updateVendorOrderStatus } from "../controllers/orderController.js";
+import { cancelVendorOrder, getVendorIncomeSummary, listVendorOrders, listVendorReturnRequests, updateOrderReturnStatus, updateVendorOrderStatus } from "../controllers/orderController.js";
 import { authenticateUser, requireRole } from "../middleware/auth.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { orderStatusSchema, productSchema, validate, vendorReturnDecisionSchema } from "../utils/validators.js";
@@ -36,6 +36,12 @@ vendorRoutes.patch(
   requireRole("vendor"),
   validate(orderStatusSchema),
   asyncHandler(updateVendorOrderStatus)
+);
+vendorRoutes.patch(
+  "/orders/:id/cancel",
+  authenticateUser,
+  requireRole("vendor"),
+  asyncHandler(cancelVendorOrder)
 );
 vendorRoutes.patch(
   "/returns/:id/decision",
