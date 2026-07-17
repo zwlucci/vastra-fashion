@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS product_reviews (
   product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
   rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
   body TEXT NOT NULL,
+  image_urls JSONB NOT NULL DEFAULT '[]'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (user_id, product_id)

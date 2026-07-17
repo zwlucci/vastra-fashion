@@ -151,9 +151,24 @@ export const wardrobeComboSchema = z.object({
   }
 });
 
+function parseStringArray(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string" || !value.trim()) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 export const entityReviewSchema = z.object({
   rating: z.coerce.number().int().min(1).max(5),
-  body: z.string().trim().min(5).max(1500)
+  body: z.string().trim().min(5).max(1500),
+  retainedImageUrls: z.preprocess(
+    (value) => value === undefined ? undefined : parseStringArray(value),
+    z.array(z.string()).max(5).optional()
+  )
 });
 
 export const messageReplySchema = z.object({
