@@ -21,6 +21,7 @@ export function notificationTarget(notification, role) {
 
   if (role === "vendor") {
     if (includesAny(type, ["return_requested", "return request", "return item"]) || metadata.returnRequestId) return "/vendor/dashboard/returned-products";
+    if (includesAny(type, ["bundled product", "bundle"])) return "/vendor/dashboard/bundled-products";
     if (includesAny(type, ["approval", "rejected", "product"])) return "/vendor/dashboard/products";
     if (includesAny(type, ["income", "payment", "payout"])) return "/vendor/dashboard/income";
     return "/vendor/dashboard/orders";

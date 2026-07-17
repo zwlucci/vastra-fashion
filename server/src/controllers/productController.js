@@ -1,4 +1,4 @@
-import { query } from "../config/db.js";
+import { query, withTransaction } from "../config/db.js";
 import { sendSystemMessageToUser } from "./messageController.js";
 import { saveProductMedia } from "../utils/imageUpload.js";
 import { AppError, notFound } from "../utils/errors.js";
@@ -17,7 +17,24 @@ function parseList(value) {
 
 function productSelect(extra = "") {
   return `SELECT products.*, users.name AS vendor_name, users.profile_image_url AS vendor_profile_image_url,
-                 users.brand_name AS vendor_brand_name, users.brand_description AS vendor_brand_description ${extra}
+                 users.brand_name AS vendor_brand_name, users.brand_description AS vendor_brand_description,
+                 COALESCE((
+                   SELECT jsonb_agg(jsonb_build_object(
+                     'id', components.id,
+                     'name', components.name,
+                     'price', components.price,
+                     'category', components.category,
+                     'imageUrl', components.image_url,
+                     'stock', components.stock,
+                     'sizes', components.sizes,
+                     'status', components.status,
+                     'vendorId', components.vendor_id,
+                     'productType', components.product_type
+                   ) ORDER BY product_bundle_items.position)
+                   FROM product_bundle_items
+                   JOIN products AS components ON components.id = product_bundle_items.component_product_id
+                   WHERE product_bundle_items.bundle_product_id = products.id
+                 ), '[]'::jsonb) AS bundle_components ${extra}
           FROM products
           LEFT JOIN users ON users.id = products.vendor_id`;
 }
@@ -37,6 +54,82 @@ function minEffectivePrice(product) {
   const prices = Object.values(sizePrices).map(Number).filter((value) => Number.isFinite(value) && value >= 0);
   prices.push(base);
   return Math.min(...prices);
+}
+
+function roundCurrency(value) {
+  return Math.round(Number(value) * 100) / 100;
+}
+
+function sharedValues(products, field) {
+  const [first, ...rest] = products;
+  const shared = new Set(first?.[field] || []);
+  rest.forEach((product) => {
+    const current = new Set(product[field] || []);
+    [...shared].forEach((value) => {
+      if (!current.has(value)) shared.delete(value);
+    });
+  });
+  return [...shared];
+}
+
+async function getBundleComponentProducts(client, ids, vendorId) {
+  const { rows } = await client.query(
+    `SELECT id, vendor_id, name, description, price, category, gender, brand, sizes, size_prices,
+            colors, color_stock_status, stock, image_url, product_images, status, product_type
+     FROM products
+     WHERE id = ANY($1::uuid[])
+     ORDER BY array_position($1::uuid[], id)`,
+    [ids]
+  );
+
+  if (rows.length !== ids.length) throw new AppError("Every bundled product must still exist.", 400);
+  const invalid = rows.find((product) => product.vendor_id !== vendorId || product.status !== "approved" || product.product_type !== "normal");
+  if (invalid) {
+    throw new AppError("Bundles can only include your own approved normal products.", 400);
+  }
+  return rows;
+}
+
+function assertBundleConfiguration({ components, sizes, stock, discountPercentage }) {
+  if (components.length < 2 || components.length > 4) {
+    throw new AppError("Bundles must include between two and four products.", 400);
+  }
+
+  const sharedSizes = sharedValues(components, "sizes");
+  const invalidSize = sizes.find((size) => !sharedSizes.includes(size));
+  if (invalidSize) {
+    throw new AppError("Selected bundle sizes must be shared by every included product.", 400);
+  }
+
+  const maxStock = Math.min(...components.map((product) => Number(product.stock || 0)));
+  if (stock > maxStock) {
+    throw new AppError(`Bundle stock cannot exceed the current component stock limit of ${maxStock}.`, 400);
+  }
+
+  const originalPrice = roundCurrency(components.reduce((sum, product) => sum + minEffectivePrice(product), 0));
+  const finalPrice = roundCurrency(originalPrice * (1 - Number(discountPercentage) / 100));
+  if (!Number.isFinite(finalPrice) || finalPrice < 0 || finalPrice > originalPrice) {
+    throw new AppError("Bundle discount and calculated prices are invalid.", 400);
+  }
+
+  return { originalPrice, finalPrice, maxStock, sharedSizes };
+}
+
+async function buildBundleMedia(payload, components, fallbackMedia = []) {
+  const media = await buildProductMedia(payload, fallbackMedia);
+  if (media.length) return media;
+
+  const componentImages = components
+    .flatMap((component) => {
+      const stored = Array.isArray(component.product_images) ? component.product_images : [];
+      return stored.length ? stored : [{ url: component.image_url, type: "image", color: "" }];
+    })
+    .filter((item) => item?.url)
+    .slice(0, 4)
+    .map((item) => ({ ...item, color: "", type: item.type || "image" }));
+
+  if (!componentImages.length) throw new AppError("At least one bundle image or component image is required", 400);
+  return componentImages;
 }
 
 async function notifyWishlistPriceDrop(previous, current) {
@@ -243,6 +336,57 @@ export async function createProduct(req, res) {
   res.status(201).json({ product: serializeProduct(rows[0]) });
 }
 
+export async function createBundle(req, res) {
+  const vendorId = req.user.id;
+  const { name, description, componentProductIds, discountPercentage, stock, sizes, media, images, imageData } = req.body;
+
+  const product = await withTransaction(async (client) => {
+    const components = await getBundleComponentProducts(client, componentProductIds, vendorId);
+    const bundle = assertBundleConfiguration({ components, sizes, stock, discountPercentage });
+    const productMedia = await buildBundleMedia({ media, images, imageData }, components);
+    const mainImageUrl = productMedia[0]?.url;
+    const gender = components.every((component) => component.gender === components[0].gender) ? components[0].gender : "Unisex";
+    const category = components.every((component) => component.category === components[0].category) ? components[0].category : "Clothing";
+
+    const inserted = await client.query(
+      `INSERT INTO products
+         (vendor_id, name, description, price, category, gender, brand, sizes, size_prices, colors,
+          color_stock_status, stock, image_url, product_images, status, product_type, bundle_original_price,
+          bundle_discount_percentage)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '{}'::jsonb, '{}'::text[], '{}'::jsonb, $9, $10, $11, 'pending', 'bundle', $12, $13)
+       RETURNING *`,
+      [
+        vendorId,
+        name,
+        description,
+        bundle.finalPrice,
+        category,
+        gender,
+        vendorBrand(req.user),
+        sizes,
+        stock,
+        mainImageUrl,
+        JSON.stringify(productMedia),
+        bundle.originalPrice,
+        discountPercentage
+      ]
+    );
+
+    for (const [index, componentId] of componentProductIds.entries()) {
+      await client.query(
+        `INSERT INTO product_bundle_items (bundle_product_id, component_product_id, position)
+         VALUES ($1, $2, $3)`,
+        [inserted.rows[0].id, componentId, index]
+      );
+    }
+
+    return inserted.rows[0];
+  });
+
+  emitProductUpdated(product);
+  res.status(201).json({ product: serializeProduct(product) });
+}
+
 export async function updateProduct(req, res) {
   const { name, description, price, category, gender, stock, media, images, imageData } = req.body;
   const options = normalizedProductOptions(req.body);
@@ -283,6 +427,88 @@ export async function updateProduct(req, res) {
   res.json({ product: serializeProduct(rows[0]) });
 }
 
+export async function updateBundle(req, res) {
+  const vendorId = req.user.id;
+  const { name, description, componentProductIds, discountPercentage, stock, sizes, media, images, imageData } = req.body;
+
+  const product = await withTransaction(async (client) => {
+    const existing = await client.query(
+      `SELECT id, vendor_id, status, product_images, image_url, name, description, sizes, stock,
+              bundle_discount_percentage
+       FROM products
+       WHERE id = $1 AND vendor_id = $2 AND product_type = 'bundle'
+       FOR UPDATE`,
+      [req.params.id, vendorId]
+    );
+    if (!existing.rows[0]) throw notFound("Bundle not found or not owned by vendor");
+    if (existing.rows[0].status === "rejected") {
+      throw new AppError("Rejected bundles cannot be edited", 403);
+    }
+
+    const previousItems = await client.query(
+      "SELECT component_product_id FROM product_bundle_items WHERE bundle_product_id = $1 ORDER BY position",
+      [req.params.id]
+    );
+    const previousComponentIds = previousItems.rows.map((row) => row.component_product_id);
+    const components = await getBundleComponentProducts(client, componentProductIds, vendorId);
+    const bundle = assertBundleConfiguration({ components, sizes, stock, discountPercentage });
+    const productMedia = await buildBundleMedia({ media, images, imageData }, components, existing.rows[0].product_images || []);
+    const mainImageUrl = productMedia[0]?.url || existing.rows[0].image_url;
+    const gender = components.every((component) => component.gender === components[0].gender) ? components[0].gender : "Unisex";
+    const category = components.every((component) => component.category === components[0].category) ? components[0].category : "Clothing";
+    const customMediaChanged = Boolean(imageData || images?.some((item) => item.imageData) || media?.some((item) => item.mediaData));
+    const sensitiveChanged = existing.rows[0].name !== name
+      || existing.rows[0].description !== description
+      || Number(existing.rows[0].bundle_discount_percentage) !== Number(discountPercentage)
+      || JSON.stringify(existing.rows[0].sizes || []) !== JSON.stringify(sizes)
+      || JSON.stringify(previousComponentIds) !== JSON.stringify(componentProductIds)
+      || customMediaChanged;
+    const nextStatus = sensitiveChanged ? "pending" : existing.rows[0].status;
+
+    const updated = await client.query(
+      `UPDATE products
+       SET name = $2, description = $3, price = $4, category = $5, gender = $6, brand = $7,
+           sizes = $8, stock = $9, image_url = $10, product_images = $11,
+           status = $12, rejection_reason = CASE WHEN $12 = 'pending' THEN NULL ELSE rejection_reason END,
+           bundle_original_price = $13, bundle_discount_percentage = $14
+       WHERE id = $1 AND vendor_id = $15 AND product_type = 'bundle'
+       RETURNING *`,
+      [
+        req.params.id,
+        name,
+        description,
+        bundle.finalPrice,
+        category,
+        gender,
+        vendorBrand(req.user),
+        sizes,
+        stock,
+        mainImageUrl,
+        JSON.stringify(productMedia),
+        nextStatus,
+        bundle.originalPrice,
+        discountPercentage,
+        vendorId
+      ]
+    );
+
+    await client.query("DELETE FROM product_bundle_items WHERE bundle_product_id = $1", [req.params.id]);
+    for (const [index, componentId] of componentProductIds.entries()) {
+      await client.query(
+        `INSERT INTO product_bundle_items (bundle_product_id, component_product_id, position)
+         VALUES ($1, $2, $3)`,
+        [req.params.id, componentId, index]
+      );
+    }
+    return updated.rows[0];
+  });
+
+  await updateStockAlertState(product);
+  emitProductUpdated(product);
+  await emitCartStockInvalidated(product);
+  res.json({ product: serializeProduct(product) });
+}
+
 export async function deleteProduct(req, res) {
   const params = [req.params.id];
   let sql = "DELETE FROM products WHERE id = $1";
@@ -302,10 +528,54 @@ export async function listVendorProducts(req, res) {
   if (req.user.role === "vendor" && vendorId !== req.user.id) {
     throw new AppError("Vendors can only view their own products", 403);
   }
-  const { rows } = await query(`${productSelect()} WHERE products.vendor_id = $1 ORDER BY products.created_at DESC`, [
+  const { rows } = await query(`${productSelect()} WHERE products.vendor_id = $1 AND products.product_type = 'normal' ORDER BY products.created_at DESC`, [
     vendorId
   ]);
   res.json({ products: rows.map(serializeProduct) });
+}
+
+export async function listVendorBundles(req, res) {
+  const vendorId = req.user.role === "admin" && req.query.vendorId ? req.query.vendorId : req.user.id;
+  if (req.user.role === "vendor" && vendorId !== req.user.id) {
+    throw new AppError("Vendors can only view their own bundles", 403);
+  }
+
+  const page = Math.max(1, Number(req.query.page || 1));
+  const limit = Math.min(25, Math.max(1, Number(req.query.limit || 10)));
+  const offset = (page - 1) * limit;
+  const params = [vendorId];
+  const filters = ["products.vendor_id = $1", "products.product_type = 'bundle'"];
+  if (req.query.status && ["pending", "approved", "rejected"].includes(req.query.status)) {
+    params.push(req.query.status);
+    filters.push(`products.status = $${params.length}`);
+  }
+  if (req.query.search) {
+    params.push(`%${req.query.search}%`);
+    filters.push(`(products.name ILIKE $${params.length} OR products.description ILIKE $${params.length})`);
+  }
+  const where = filters.join(" AND ");
+  const count = await query(`SELECT COUNT(*)::int AS total FROM products WHERE ${where}`, params);
+  params.push(limit, offset);
+  const { rows } = await query(
+    `${productSelect()} WHERE ${where} ORDER BY products.created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params
+  );
+  const indicators = await query(
+    `SELECT
+       COUNT(*) FILTER (WHERE status = 'pending')::int AS pending,
+       COUNT(*) FILTER (WHERE status = 'approved')::int AS approved,
+       COUNT(*) FILTER (WHERE status = 'rejected')::int AS rejected,
+       COUNT(*) FILTER (WHERE status = 'approved' AND stock = 1)::int AS low_stock,
+       COUNT(*) FILTER (WHERE status <> 'approved' OR stock = 0)::int AS unavailable
+     FROM products
+     WHERE vendor_id = $1 AND product_type = 'bundle'`,
+    [vendorId]
+  );
+  res.json({
+    products: rows.map(serializeProduct),
+    indicators: indicators.rows[0],
+    meta: { page, limit, total: count.rows[0].total, totalPages: Math.max(1, Math.ceil(count.rows[0].total / limit)) }
+  });
 }
 
 export async function getVendorProfile(req, res) {
@@ -384,21 +654,54 @@ export async function setProductStatus(req, res) {
     throw new AppError("A rejection reason is required", 400);
   }
 
-  const { rows } = await query("UPDATE products SET status = $1, rejection_reason = $3 WHERE id = $2 RETURNING *", [
-    req.params.status,
-    req.params.id,
-    req.params.status === "rejected" ? req.body.reason : null
-  ]);
-  if (!rows[0]) throw notFound("Product not found");
+  const product = await withTransaction(async (client) => {
+    const existing = await client.query("SELECT * FROM products WHERE id = $1 FOR UPDATE", [req.params.id]);
+    if (!existing.rows[0]) throw notFound("Product not found");
 
-  const product = rows[0];
+    let recalculated = null;
+    if (req.params.status === "approved" && existing.rows[0].product_type === "bundle") {
+      const bundleItems = await client.query(
+        "SELECT component_product_id FROM product_bundle_items WHERE bundle_product_id = $1 ORDER BY position",
+        [req.params.id]
+      );
+      const componentIds = bundleItems.rows.map((row) => row.component_product_id);
+      const components = await getBundleComponentProducts(client, componentIds, existing.rows[0].vendor_id);
+      recalculated = assertBundleConfiguration({
+        components,
+        sizes: existing.rows[0].sizes || [],
+        stock: existing.rows[0].stock,
+        discountPercentage: existing.rows[0].bundle_discount_percentage
+      });
+    }
+
+    const { rows } = await client.query(
+      `UPDATE products
+       SET status = $1,
+           rejection_reason = $3,
+           price = COALESCE($4::numeric, price),
+           bundle_original_price = COALESCE($5::numeric, bundle_original_price)
+       WHERE id = $2
+       RETURNING *`,
+      [
+        req.params.status,
+        req.params.id,
+        req.params.status === "rejected" ? req.body.reason : null,
+        recalculated?.finalPrice ?? null,
+        recalculated?.originalPrice ?? null
+      ]
+    );
+    return rows[0];
+  });
+
   if (product.vendor_id) {
+    const subjectNoun = product.product_type === "bundle" ? "Bundled product" : "Product";
+    const bodyNoun = product.product_type === "bundle" ? "bundled product" : "product";
     if (req.params.status === "approved") {
       await sendSystemMessageToUser({
         userId: product.vendor_id,
         senderId: req.user.id,
-        subject: `Product approved: ${product.name}`,
-        body: `Good news. Your product "${product.name}" has been approved and is now visible in the VASTRA shop.\n\nStatus: Approved\n\nThank you for keeping the marketplace fresh and polished.`,
+        subject: `${subjectNoun} approved: ${product.name}`,
+        body: `Good news. Your ${bodyNoun} "${product.name}" has been approved and is now visible in the VASTRA shop.\n\nStatus: Approved\n\nThank you for keeping the marketplace fresh and polished.`,
         imageUrl: firstProductImage(product)
       });
     }
@@ -407,8 +710,8 @@ export async function setProductStatus(req, res) {
       await sendSystemMessageToUser({
         userId: product.vendor_id,
         senderId: req.user.id,
-        subject: `Product needs revision: ${product.name}`,
-        body: `Your product "${product.name}" was not approved.\n\nProduct ID: ${product.id}\nReason:\n${req.body.reason}\n\nPlease review the feedback before creating a revised listing.`,
+        subject: `${subjectNoun} needs revision: ${product.name}`,
+        body: `Your ${bodyNoun} "${product.name}" was not approved.\n\nProduct ID: ${product.id}\nReason:\n${req.body.reason}\n\nPlease review the feedback before creating a revised listing.`,
         imageUrl: firstProductImage(product)
       });
     }
@@ -419,7 +722,7 @@ export async function setProductStatus(req, res) {
   emitProductUpdated(product);
   await emitCartStockInvalidated(product);
 
-  res.json({ product: serializeProduct(rows[0]) });
+  res.json({ product: serializeProduct(product) });
 }
 
 export async function updateStockAlertState(product) {

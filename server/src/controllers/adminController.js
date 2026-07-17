@@ -58,6 +58,7 @@ export async function getStats(req, res) {
   const { rows } = await query(`
     SELECT
       (SELECT COUNT(*)::int FROM products WHERE status = 'pending') AS pending_approvals,
+      (SELECT COUNT(*)::int FROM products WHERE product_type = 'bundle' AND status = 'pending') AS pending_bundle_approvals,
       (SELECT COUNT(*)::int FROM orders WHERE status NOT IN ('delivered', 'cancelled')) AS active_orders,
       (SELECT COUNT(DISTINCT conversation_messages.conversation_id)::int
        FROM conversation_messages
@@ -66,13 +67,17 @@ export async function getStats(req, res) {
          AND conversation_messages.read_by_admin = false
          AND conversation_messages.sender_role NOT IN ('admin', 'system-admin')) AS unread_chats,
       (SELECT COUNT(*)::int FROM products WHERE status = 'approved' AND stock = 1) AS low_stock,
+      (SELECT COUNT(*)::int FROM products WHERE product_type = 'bundle' AND status = 'approved' AND stock = 1) AS low_stock_bundles,
       (SELECT COUNT(*)::int FROM products WHERE status = 'approved' AND stock = 0) AS out_of_stock,
+      (SELECT COUNT(*)::int FROM products WHERE product_type = 'bundle' AND (status <> 'approved' OR stock = 0)) AS unavailable_bundles,
       (SELECT COUNT(*)::int FROM products WHERE created_at >= NOW() - INTERVAL '7 days') AS recently_added_products,
       (SELECT COUNT(*)::int FROM users WHERE role = 'user' AND created_at >= DATE_TRUNC('week', NOW())) AS new_users_this_week,
       (SELECT COUNT(*)::int
        FROM users
        WHERE role = 'vendor' AND GREATEST(created_at, updated_at) >= DATE_TRUNC('week', NOW())) AS new_vendors_this_week,
       (SELECT COUNT(*)::int FROM products WHERE status = 'approved') AS total_approved_products,
+      (SELECT COUNT(*)::int FROM products WHERE product_type = 'bundle' AND status = 'approved') AS approved_bundles,
+      (SELECT COUNT(*)::int FROM products WHERE product_type = 'bundle' AND status = 'rejected') AS rejected_bundles,
       (SELECT products.name
        FROM order_items
        JOIN orders ON orders.id = order_items.order_id

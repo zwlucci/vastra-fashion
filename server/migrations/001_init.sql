@@ -50,6 +50,9 @@ CREATE TABLE IF NOT EXISTS products (
   stock INTEGER NOT NULL DEFAULT 0 CHECK (stock >= 0),
   image_url TEXT NOT NULL,
   product_images JSONB NOT NULL DEFAULT '[]'::jsonb,
+  product_type TEXT NOT NULL DEFAULT 'normal' CHECK (product_type IN ('normal', 'bundle')),
+  bundle_original_price NUMERIC(10, 2),
+  bundle_discount_percentage NUMERIC(5, 2) NOT NULL DEFAULT 0 CHECK (bundle_discount_percentage >= 0 AND bundle_discount_percentage <= 100),
   status product_status NOT NULL DEFAULT 'pending',
   rejection_reason TEXT,
   low_stock_alert_sent BOOLEAN NOT NULL DEFAULT false,
@@ -78,6 +81,15 @@ CREATE TABLE IF NOT EXISTS wishlist_items (
   product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (user_id, product_id)
+);
+
+CREATE TABLE IF NOT EXISTS product_bundle_items (
+  bundle_product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  component_product_id UUID NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (bundle_product_id, component_product_id),
+  CHECK (bundle_product_id <> component_product_id)
 );
 
 CREATE TABLE IF NOT EXISTS wardrobe_items (
@@ -188,7 +200,10 @@ ALTER TABLE products
   ADD COLUMN IF NOT EXISTS low_stock_alert_sent BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS out_of_stock_alert_sent BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS size_prices JSONB NOT NULL DEFAULT '{}'::jsonb,
-  ADD COLUMN IF NOT EXISTS color_stock_status JSONB NOT NULL DEFAULT '{}'::jsonb;
+  ADD COLUMN IF NOT EXISTS color_stock_status JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS product_type TEXT NOT NULL DEFAULT 'normal',
+  ADD COLUMN IF NOT EXISTS bundle_original_price NUMERIC(10, 2),
+  ADD COLUMN IF NOT EXISTS bundle_discount_percentage NUMERIC(5, 2) NOT NULL DEFAULT 0;
 
 ALTER TABLE products
   ADD COLUMN IF NOT EXISTS wardrobe_enabled BOOLEAN NOT NULL DEFAULT false,
@@ -254,6 +269,8 @@ FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 CREATE INDEX IF NOT EXISTS idx_products_status ON products(status);
 CREATE INDEX IF NOT EXISTS idx_products_vendor_id ON products(vendor_id);
+CREATE INDEX IF NOT EXISTS idx_products_product_type ON products(product_type);
+CREATE INDEX IF NOT EXISTS idx_product_bundle_items_component ON product_bundle_items(component_product_id);
 CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
 CREATE INDEX IF NOT EXISTS idx_cart_items_user_id ON cart_items(user_id);
 CREATE INDEX IF NOT EXISTS idx_wishlist_items_user_id ON wishlist_items(user_id);
