@@ -2,17 +2,28 @@ import { Router } from "express";
 import {
   addAddress,
   addPaymentPreference,
+  addSavedPaymentMethod,
   deleteAddress,
   deletePaymentPreference,
+  deleteSavedPaymentMethod,
   listCheckoutDetails,
+  listSavedPaymentMethods,
   setDefaultAddress,
   setDefaultPaymentPreference,
+  setDefaultSavedPaymentMethod,
   updateAddress,
-  updatePaymentPreference
+  updatePaymentPreference,
+  updateSavedPaymentMethod
 } from "../controllers/checkoutDetailsController.js";
 import { authenticateUser } from "../middleware/auth.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { checkoutAddressSchema, paymentPreferenceSchema, validate } from "../utils/validators.js";
+import {
+  checkoutAddressSchema,
+  paymentPreferenceSchema,
+  savedPaymentMethodCreateSchema,
+  savedPaymentMethodUpdateSchema,
+  validate
+} from "../utils/validators.js";
 
 export const checkoutDetailsRoutes = Router();
 
@@ -26,3 +37,8 @@ checkoutDetailsRoutes.post("/payment-preferences", validate(paymentPreferenceSch
 checkoutDetailsRoutes.patch("/payment-preferences/:id", validate(paymentPreferenceSchema), asyncHandler(updatePaymentPreference));
 checkoutDetailsRoutes.delete("/payment-preferences/:id", asyncHandler(deletePaymentPreference));
 checkoutDetailsRoutes.patch("/payment-preferences/:id/default", asyncHandler(setDefaultPaymentPreference));
+checkoutDetailsRoutes.get("/saved-payment-methods", asyncHandler(listSavedPaymentMethods));
+checkoutDetailsRoutes.post("/saved-payment-methods", validate(savedPaymentMethodCreateSchema), asyncHandler(addSavedPaymentMethod));
+checkoutDetailsRoutes.patch("/saved-payment-methods/:id", validate(savedPaymentMethodUpdateSchema), asyncHandler(updateSavedPaymentMethod));
+checkoutDetailsRoutes.delete("/saved-payment-methods/:id", asyncHandler(deleteSavedPaymentMethod));
+checkoutDetailsRoutes.patch("/saved-payment-methods/:id/default", asyncHandler(setDefaultSavedPaymentMethod));

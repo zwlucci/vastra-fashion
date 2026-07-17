@@ -1,4 +1,4 @@
-import { CreditCard, Edit3, MapPin, Plus, Star, Trash2, X } from "lucide-react";
+import { CreditCard, Edit3, Eye, EyeOff, MapPin, Plus, ShieldCheck, Star, Trash2, X } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, getErrorMessage } from "../api/client.js";
@@ -121,6 +121,49 @@ const emptyPayment = {
   isDefault: false
 };
 
+const emptySavedCard = {
+  nickname: "",
+  cardholderName: "",
+  cardNumber: "",
+  expiryMonth: "",
+  expiryYear: "",
+  billingAddress: "",
+  billingCity: "",
+  billingState: "",
+  billingCountry: "Nepal",
+  postalCode: "",
+  isDefault: false
+};
+
+function formatCardNumber(value) {
+  return String(value || "").replace(/[^\d]/g, "").slice(0, 19).replace(/(.{4})/g, "$1 ").trim();
+}
+
+function detectCardBrand(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (/^4/.test(digits)) return "Visa";
+  if (/^(5[1-5]|2[2-7])/.test(digits)) return "Mastercard";
+  if (/^3[47]/.test(digits)) return "American Express";
+  if (/^6(?:011|5)/.test(digits)) return "Discover";
+  return "Card";
+}
+
+function ConfirmDialog({ confirm, onCancel, onConfirm }) {
+  if (!confirm) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+      <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-soft dark:bg-neutral-900">
+        <h3 className="text-lg font-black">{confirm.title}</h3>
+        <p className="mt-2 text-sm text-neutral-500">{confirm.body}</p>
+        <div className="mt-5 flex justify-end gap-2">
+          <button className="btn-secondary" onClick={onCancel} type="button">Cancel</button>
+          <button className="btn-primary" onClick={onConfirm} type="button">{confirm.action || "Continue"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function addressSummary(address) {
   return [address.detailedAddress, address.area, address.city, address.province, address.postalCode, address.country].filter(Boolean).join(", ");
 }
@@ -136,6 +179,10 @@ function SavedCheckoutDetails() {
   const [editingAddressId, setEditingAddressId] = useState("");
   const [paymentForm, setPaymentForm] = useState(emptyPayment);
   const [editingPaymentId, setEditingPaymentId] = useState("");
+  const [savedCardForm, setSavedCardForm] = useState(emptySavedCard);
+  const [editingSavedCardId, setEditingSavedCardId] = useState("");
+  const [showSavedCardNumber, setShowSavedCardNumber] = useState(false);
+  const [confirm, setConfirm] = useState(null);
 
   async function loadDetails() {
     setLoading(true);
@@ -148,6 +195,12 @@ function SavedCheckoutDetails() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function resetSavedCardForm() {
+    setSavedCardForm(emptySavedCard);
+    setEditingSavedCardId("");
+    setShowSavedCardNumber(false);
   }
 
   useEffect(() => {
@@ -206,10 +259,24 @@ function SavedCheckoutDetails() {
   }
 
   async function deleteAddress(id) {
-    if (!window.confirm("Delete this saved delivery address?")) return;
-    await api.delete(`/checkout-details/addresses/${id}`);
-    showNotice("Address deleted.");
-    await loadDetails();
+    setConfirm({
+      title: "Delete saved address?",
+      body: "This removes the delivery address from your saved checkout details.",
+      action: "Delete",
+      onConfirm: async () => {
+        setSaving(true);
+        try {
+          await api.delete(`/checkout-details/addresses/${id}`);
+          showNotice("Address deleted.");
+          await loadDetails();
+        } catch (err) {
+          showNotice(getErrorMessage(err), "error");
+        } finally {
+          setSaving(false);
+          setConfirm(null);
+        }
+      }
+    });
   }
 
   async function setDefaultAddress(id) {
@@ -253,10 +320,24 @@ function SavedCheckoutDetails() {
   }
 
   async function deletePayment(id) {
-    if (!window.confirm("Delete this saved payment preference?")) return;
-    await api.delete(`/checkout-details/payment-preferences/${id}`);
-    showNotice("Payment preference deleted.");
-    await loadDetails();
+    setConfirm({
+      title: "Delete payment preference?",
+      body: "This removes the payment preference from your saved checkout details.",
+      action: "Delete",
+      onConfirm: async () => {
+        setSaving(true);
+        try {
+          await api.delete(`/checkout-details/payment-preferences/${id}`);
+          showNotice("Payment preference deleted.");
+          await loadDetails();
+        } catch (err) {
+          showNotice(getErrorMessage(err), "error");
+        } finally {
+          setSaving(false);
+          setConfirm(null);
+        }
+      }
+    });
   }
 
   async function setDefaultPayment(id) {
@@ -265,8 +346,94 @@ function SavedCheckoutDetails() {
     await loadDetails();
   }
 
+  function editSavedCard(card) {
+    setEditingSavedCardId(card.id);
+    setSavedCardForm({
+      nickname: card.nickname || "",
+      cardholderName: card.cardholderName || "",
+      cardNumber: "",
+      expiryMonth: String(card.expiryMonth || ""),
+      expiryYear: String(card.expiryYear || ""),
+      billingAddress: card.billingAddress || "",
+      billingCity: card.billingCity || "",
+      billingState: card.billingState || "",
+      billingCountry: card.billingCountry || "Nepal",
+      postalCode: card.postalCode || "",
+      isDefault: Boolean(card.isDefault)
+    });
+    setShowSavedCardNumber(false);
+  }
+
+  async function persistSavedCard() {
+    setSaving(true);
+    try {
+      const payload = {
+        ...savedCardForm,
+        cardNumber: savedCardForm.cardNumber.replace(/[ -]/g, ""),
+        expiryMonth: Number(savedCardForm.expiryMonth),
+        expiryYear: Number(savedCardForm.expiryYear)
+      };
+      if (editingSavedCardId && !payload.cardNumber) delete payload.cardNumber;
+      if (editingSavedCardId) {
+        await api.patch(`/checkout-details/saved-payment-methods/${editingSavedCardId}`, payload);
+      } else {
+        await api.post("/checkout-details/saved-payment-methods", payload);
+      }
+      resetSavedCardForm();
+      showNotice("Saved test card updated.");
+      await loadDetails();
+    } catch (err) {
+      showNotice(getErrorMessage(err), "error");
+    } finally {
+      setSaving(false);
+      setConfirm(null);
+    }
+  }
+
+  async function saveSavedCard(event) {
+    event.preventDefault();
+    if (editingSavedCardId && savedCardForm.cardNumber.trim()) {
+      setConfirm({
+        title: "Replace saved card number?",
+        body: "The existing encrypted test card number will be replaced. CVV is still never stored.",
+        action: "Replace",
+        onConfirm: persistSavedCard
+      });
+      return;
+    }
+    await persistSavedCard();
+  }
+
+  async function deleteSavedCard(id) {
+    setConfirm({
+      title: "Delete saved test card?",
+      body: "This removes the card from your saved checkout options. Existing orders keep only their non-sensitive payment summary.",
+      action: "Delete",
+      onConfirm: async () => {
+        setSaving(true);
+        try {
+          await api.delete(`/checkout-details/saved-payment-methods/${id}`);
+          showNotice("Saved test card deleted.");
+          await loadDetails();
+        } catch (err) {
+          showNotice(getErrorMessage(err), "error");
+        } finally {
+          setSaving(false);
+          setConfirm(null);
+        }
+      }
+    });
+  }
+
+  async function setDefaultSavedCard(id) {
+    await api.patch(`/checkout-details/saved-payment-methods/${id}/default`);
+    showNotice("Default saved card updated.");
+    await loadDetails();
+  }
+
   return (
     <section className="panel space-y-6" id="saved-checkout-details">
+      <ConfirmDialog confirm={confirm} onCancel={() => setConfirm(null)} onConfirm={() => confirm?.onConfirm?.()} />
       <div>
         <p className="text-sm font-bold uppercase tracking-wide text-clay">Saved Checkout Details</p>
         <h2 className="text-2xl font-black">Checkout information</h2>
@@ -291,7 +458,7 @@ function SavedCheckoutDetails() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="flex items-center gap-2 font-black"><MapPin size={16} /> {address.label} {address.isDefault && <span className="rounded-full bg-clay/10 px-2 py-0.5 text-xs text-clay">Default</span>}</p>
-                    <p className="mt-1 text-sm text-neutral-500">{address.fullName} · {address.phoneNumber}</p>
+                    <p className="mt-1 text-sm text-neutral-500">{address.fullName} - {address.phoneNumber}</p>
                     <p className="mt-1 text-sm">{addressSummary(address)}</p>
                     {address.deliveryInstructions && <p className="mt-1 text-xs text-neutral-500">{address.deliveryInstructions}</p>}
                   </div>
@@ -356,6 +523,53 @@ function SavedCheckoutDetails() {
             <div className="flex flex-wrap gap-2"><button className="btn-primary" disabled={saving} type="submit">{editingPaymentId ? "Save payment" : "Add payment"}</button>{editingPaymentId && <button className="btn-secondary" onClick={() => { setEditingPaymentId(""); setPaymentForm(emptyPayment); }} type="button">Cancel</button>}</div>
           </form>
         </div>
+
+        {details.demoSavedCardsEnabled && <div className="grid gap-5 lg:grid-cols-[1fr_420px]">
+          <div className="space-y-3">
+            <div>
+              <h3 className="font-black">Saved test cards</h3>
+              <p className="mt-1 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">Development mode only. Use test card details. Do not enter a real debit or credit card.</p>
+            </div>
+            {details.savedPaymentMethods?.length ? details.savedPaymentMethods.map((card) => (
+              <div className="rounded-lg border border-neutral-200 bg-neutral-950 p-4 text-white dark:border-neutral-800" key={card.id}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="flex items-center gap-2 text-sm font-bold text-white/70"><ShieldCheck size={15} /> {card.cardBrand}</p>
+                    <p className="mt-3 text-xl font-black">{card.nickname}</p>
+                    <p className="mt-2 font-mono text-lg tracking-wide">{card.maskedCardNumber}</p>
+                    <p className="mt-2 text-sm text-white/70">{card.cardholderName} - Expires {String(card.expiryMonth).padStart(2, "0")}/{String(card.expiryYear).slice(-2)}</p>
+                    {card.isDefault && <span className="mt-3 inline-flex rounded-full bg-white px-2 py-0.5 text-xs font-bold text-neutral-950">Default</span>}
+                  </div>
+                  <div className="flex gap-2">
+                    {!card.isDefault && <button className="btn-secondary h-9 px-3" onClick={() => setDefaultSavedCard(card.id)} type="button" title="Set as default"><Star size={15} /></button>}
+                    <button className="btn-secondary h-9 px-3" onClick={() => editSavedCard(card)} type="button">Edit</button>
+                    <button className="btn-secondary h-9 px-3" onClick={() => deleteSavedCard(card.id)} type="button" title="Delete"><Trash2 size={15} /></button>
+                  </div>
+                </div>
+              </div>
+            )) : <p className="rounded-lg border border-dashed border-neutral-300 p-4 text-sm text-neutral-500 dark:border-neutral-700">No saved test cards yet.</p>}
+          </div>
+          <form className="space-y-3 rounded-lg border border-neutral-200 p-4 dark:border-neutral-800" onSubmit={saveSavedCard}>
+            <h3 className="flex items-center gap-2 font-black"><Plus size={16} /> {editingSavedCardId ? "Edit test card" : "Add test card"}</h3>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+              <label className="text-sm font-semibold">Card nickname<input className="mt-1 w-full" required value={savedCardForm.nickname} onChange={(event) => setSavedCardForm({ ...savedCardForm, nickname: event.target.value })} placeholder="Personal Visa" /></label>
+              <label className="text-sm font-semibold">Cardholder name<input className="mt-1 w-full" required value={savedCardForm.cardholderName} onChange={(event) => setSavedCardForm({ ...savedCardForm, cardholderName: event.target.value })} /></label>
+              <label className="text-sm font-semibold">Test card number<div className="mt-1 flex gap-2"><input className="w-full" required={!editingSavedCardId} inputMode="numeric" type={showSavedCardNumber ? "text" : "password"} value={savedCardForm.cardNumber} onChange={(event) => setSavedCardForm({ ...savedCardForm, cardNumber: formatCardNumber(event.target.value) })} placeholder={editingSavedCardId ? "Leave blank to keep current number" : "4242 4242 4242 4242"} /><button className="btn-secondary h-11 w-11 px-0" onClick={() => setShowSavedCardNumber((current) => !current)} type="button" title={showSavedCardNumber ? "Hide card number" : "Show card number"}>{showSavedCardNumber ? <EyeOff size={16} /> : <Eye size={16} />}</button></div><span className="mt-1 block text-xs text-neutral-500">{detectCardBrand(savedCardForm.cardNumber)} detected. Only approved demo cards are accepted.</span></label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-sm font-semibold">Expiry month<input className="mt-1 w-full" required inputMode="numeric" maxLength="2" value={savedCardForm.expiryMonth} onChange={(event) => setSavedCardForm({ ...savedCardForm, expiryMonth: event.target.value.replace(/\D/g, "").slice(0, 2) })} placeholder="12" /></label>
+                <label className="text-sm font-semibold">Expiry year<input className="mt-1 w-full" required inputMode="numeric" maxLength="4" value={savedCardForm.expiryYear} onChange={(event) => setSavedCardForm({ ...savedCardForm, expiryYear: event.target.value.replace(/\D/g, "").slice(0, 4) })} placeholder="2028" /></label>
+              </div>
+              <label className="text-sm font-semibold">Billing address<input className="mt-1 w-full" required value={savedCardForm.billingAddress} onChange={(event) => setSavedCardForm({ ...savedCardForm, billingAddress: event.target.value })} /></label>
+              <label className="text-sm font-semibold">Billing city<input className="mt-1 w-full" required value={savedCardForm.billingCity} onChange={(event) => setSavedCardForm({ ...savedCardForm, billingCity: event.target.value })} /></label>
+              <label className="text-sm font-semibold">Province/state<input className="mt-1 w-full" value={savedCardForm.billingState} onChange={(event) => setSavedCardForm({ ...savedCardForm, billingState: event.target.value })} /></label>
+              <label className="text-sm font-semibold">Country<input className="mt-1 w-full" required value={savedCardForm.billingCountry} onChange={(event) => setSavedCardForm({ ...savedCardForm, billingCountry: event.target.value })} /></label>
+              <label className="text-sm font-semibold">Postal/ZIP<input className="mt-1 w-full" required value={savedCardForm.postalCode} onChange={(event) => setSavedCardForm({ ...savedCardForm, postalCode: event.target.value })} /></label>
+            </div>
+            <p className="rounded-md bg-neutral-100 p-3 text-xs font-semibold text-neutral-600 dark:bg-neutral-950 dark:text-neutral-300">CVV is intentionally not saved. You will enter it during each checkout.</p>
+            <label className="flex items-center gap-2 text-sm"><input checked={savedCardForm.isDefault} onChange={(event) => setSavedCardForm({ ...savedCardForm, isDefault: event.target.checked })} type="checkbox" /> Set as default</label>
+            <div className="flex flex-wrap gap-2"><button className="btn-primary" disabled={saving} type="submit">{editingSavedCardId ? "Save test card" : "Add test card"}</button>{editingSavedCardId && <button className="btn-secondary" onClick={resetSavedCardForm} type="button">Cancel</button>}</div>
+          </form>
+        </div>}
       </>}
     </section>
   );

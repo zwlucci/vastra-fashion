@@ -248,6 +248,8 @@ export const checkoutSchema = z.object({
   deliveryAddress: z.string().trim().min(5).max(300),
   savedAddressId: z.string().uuid().optional().or(z.literal("")),
   paymentPreferenceId: z.string().uuid().optional().or(z.literal("")),
+  savedPaymentMethodId: z.string().uuid().optional().or(z.literal("")),
+  savedCardCvv: z.string().trim().regex(/^\d{3,4}$/, "Enter a valid CVV").optional().or(z.literal("")),
   couponCode: z.string().trim().max(40).optional().default(""),
   saveShippingInfo: z.boolean().optional().default(false),
   saveAddress: z.boolean().optional().default(false),
@@ -263,6 +265,15 @@ export const checkoutSchema = z.object({
   }).optional(),
   saveCardDetails: z.boolean().optional().default(false),
   savePaymentPreference: z.boolean().optional().default(false),
+  saveCardAsDefault: z.boolean().optional().default(false),
+  savedCard: z.object({
+    nickname: z.string().trim().min(1).max(80).optional().default("Checkout card"),
+    billingAddress: z.string().trim().max(200).optional().default(""),
+    billingCity: z.string().trim().max(100).optional().default(""),
+    billingState: z.string().trim().max(100).optional().default(""),
+    billingCountry: z.string().trim().max(80).optional().default("Nepal"),
+    postalCode: z.string().trim().max(20).optional().default("")
+  }).optional(),
   card: z.object({
     cardholderName: z.string().trim().min(2).max(100),
     cardNumber: z.string().transform((value) => value.replace(/[ -]/g, "")).pipe(z.string().regex(/^\d{13,19}$/, "Enter a valid card number")),
@@ -271,6 +282,12 @@ export const checkoutSchema = z.object({
   }).optional()
 }).superRefine((data, context) => {
   if (data.paymentMethod !== "card") return;
+  if (data.savedPaymentMethodId) {
+    if (!data.savedCardCvv) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "CVV is required for saved cards", path: ["savedCardCvv"] });
+    }
+    return;
+  }
   if (!data.card) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "Card details are required", path: ["card"] });
     return;
@@ -281,6 +298,36 @@ export const checkoutSchema = z.object({
     context.addIssue({ code: z.ZodIssueCode.custom, message: "Card has expired", path: ["card", "expiryDate"] });
   }
 });
+
+const savedCardBaseSchema = {
+  nickname: z.string().trim().min(1, "Card nickname is required").max(80),
+  cardholderName: z.string().trim().min(2, "Cardholder name is required").max(100),
+  expiryMonth: z.coerce.number().int().min(1).max(12),
+  expiryYear: z.coerce.number().int().min(new Date().getFullYear()).max(2100),
+  billingAddress: z.string().trim().min(3, "Billing address is required").max(200),
+  billingCity: z.string().trim().min(1, "Billing city is required").max(100),
+  billingState: z.string().trim().max(100).optional().default(""),
+  billingCountry: z.string().trim().min(2, "Billing country is required").max(80),
+  postalCode: z.string().trim().min(1, "Postal/ZIP code is required").max(20),
+  isDefault: z.boolean().optional().default(false)
+};
+
+function refineSavedCardExpiry(data, context) {
+  const expiry = new Date(Number(data.expiryYear), Number(data.expiryMonth), 0, 23, 59, 59, 999);
+  if (expiry < new Date()) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "This saved card has expired.", path: ["expiryYear"] });
+  }
+}
+
+export const savedPaymentMethodCreateSchema = z.object({
+  ...savedCardBaseSchema,
+  cardNumber: z.string().trim().min(1, "Test card number is required")
+}).superRefine(refineSavedCardExpiry);
+
+export const savedPaymentMethodUpdateSchema = z.object({
+  ...savedCardBaseSchema,
+  cardNumber: z.string().trim().optional().default("")
+}).superRefine(refineSavedCardExpiry);
 
 export const checkoutAddressSchema = z.object({
   label: z.enum(["Home", "Work", "Other"]).optional().default("Home"),

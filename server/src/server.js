@@ -5,6 +5,7 @@ import { app, corsOrigin } from "./app.js";
 import { withTransaction } from "./config/db.js";
 import { initSocket } from "./socket.js";
 import { releaseExpiredReservations } from "./utils/cartReservations.js";
+import { assertDemoSavedCardStartupConfig } from "./utils/demoSavedCards.js";
 
 dotenv.config();
 
@@ -14,6 +15,7 @@ const host = process.env.HOST || "0.0.0.0";
 if (!process.env.JWT_SECRET) {
   throw new Error("JWT_SECRET is required");
 }
+assertDemoSavedCardStartupConfig();
 
 const server = http.createServer(app);
 initSocket(server, corsOrigin);

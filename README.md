@@ -1157,6 +1157,26 @@ The frontend clears cart state and displays the order success page.
 - Sensitive config expected through environment variables.
 - Full card number and CVV are not stored.
 
+### Development-only saved test cards
+
+VASTRA can optionally save complete allowlisted test card numbers for academic/demo checkout flows. This is disabled unless `ENABLE_DEMO_SAVED_CARDS=true` is set on the backend. Do not use this feature with real debit or credit cards.
+
+Only card numbers from `DEMO_CARD_NUMBERS` are accepted, after spaces/dashes are removed, digit length is checked, and the Luhn algorithm passes. The default demo allowlist is:
+
+```text
+4242424242424242,5555555555554444,378282246310005
+```
+
+Saved test card numbers are encrypted before PostgreSQL insertion using AES-256-GCM. The database stores `encrypted_card_number`, `card_number_iv`, `card_number_auth_tag`, `card_last_four`, and `card_brand`; API responses only return masked card information such as `**** **** **** 4242`. The encryption key is loaded from `DEMO_CARD_ENCRYPTION_KEY` and is never returned to the frontend. CVV is requested during each checkout and is never stored.
+
+Generate a 32-byte key for local development with:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
+
+Store the generated value only in your local `.env`. The `.env` file must remain excluded from source control. A real production system should use payment-provider tokenization instead of storing card numbers, even encrypted ones.
+
 ### Partially implemented
 
 - Card payment is validation and record-keeping only, not real payment processing.

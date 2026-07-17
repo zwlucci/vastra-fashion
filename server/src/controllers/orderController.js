@@ -10,11 +10,15 @@ import { RESERVATION_EXPIRED_MESSAGE, releaseExpiredReservations } from "../util
 import {
   assertSavedAddressOwner,
   assertSavedPaymentOwner,
-  buildSavedPaymentFromCard,
   formatAddress,
   saveCheckoutAddressInTransaction,
-  savePaymentPreferenceInTransaction
+  saveDemoPaymentMethodInTransaction
 } from "./checkoutDetailsController.js";
+import {
+  assertApprovedDemoCard,
+  assertSavedDemoCardForCheckout,
+  demoSavedCardsEnabled
+} from "../utils/demoSavedCards.js";
 
 const RETURN_PRIORITY = ["requested", "approved", "rejected", "completed"];
 
@@ -253,13 +257,17 @@ export async function createOrder(req, res) {
     deliveryAddress,
     savedAddressId,
     paymentPreferenceId,
+    savedPaymentMethodId,
+    savedCardCvv,
     card,
     couponCode,
     saveShippingInfo,
     saveAddress,
     address,
     saveCardDetails,
-    savePaymentPreference
+    savePaymentPreference,
+    saveCardAsDefault,
+    savedCard
   } = req.body;
   const order = await withTransaction(async (client) => {
     await releaseExpiredReservations(client, req.user.id);
@@ -271,6 +279,16 @@ export async function createOrder(req, res) {
     const orderFullName = savedAddress ? savedAddress.full_name : fullName;
     const orderPhoneNumber = savedAddress ? savedAddress.phone_number : phoneNumber;
     const orderDeliveryAddress = savedAddress ? formatAddress(savedAddress) : deliveryAddress;
+    const savedDemoCard = paymentMethod === "card" && savedPaymentMethodId
+      ? await assertSavedDemoCardForCheckout(client, req.user.id, savedPaymentMethodId, savedCardCvv)
+      : null;
+    const paymentCard = paymentMethod === "card" ? (savedDemoCard || card) : null;
+    if (paymentMethod === "card" && !paymentCard) {
+      throw new AppError("Card details are required", 400);
+    }
+    if (paymentMethod === "card" && !savedDemoCard && demoSavedCardsEnabled()) {
+      assertApprovedDemoCard(card.cardNumber);
+    }
     const cart = await client.query(
       `SELECT cart_items.id AS cart_item_id, cart_items.product_id, cart_items.quantity,
               cart_items.reserved_quantity, cart_items.reservation_status, cart_items.reservation_expires_at,
@@ -338,9 +356,9 @@ export async function createOrder(req, res) {
         orderFullName,
         orderPhoneNumber,
         orderDeliveryAddress,
-        paymentMethod === "card" ? card.cardholderName : null,
-        paymentMethod === "card" ? card.cardNumber.slice(-4) : null,
-        paymentMethod === "card" ? card.expiryDate : null,
+        paymentMethod === "card" ? paymentCard.cardholderName : null,
+        paymentMethod === "card" ? paymentCard.cardNumber.slice(-4) : null,
+        paymentMethod === "card" ? paymentCard.expiryDate : null,
         subtotal,
         shippingFee,
         discountAmount,
@@ -381,8 +399,22 @@ export async function createOrder(req, res) {
         detailedAddress: address?.detailedAddress || orderDeliveryAddress
       });
     }
-    if (paymentMethod === "card" && (saveCardDetails || savePaymentPreference) && card) {
-      await savePaymentPreferenceInTransaction(client, req.user.id, buildSavedPaymentFromCard(card));
+    if (paymentMethod === "card" && !savedDemoCard && (saveCardDetails || savePaymentPreference) && card) {
+      const [expiryMonth, expiryYearShort] = card.expiryDate.split("/").map(Number);
+      const expiryYear = 2000 + expiryYearShort;
+      await saveDemoPaymentMethodInTransaction(client, req.user.id, {
+        nickname: savedCard?.nickname || `${paymentCard.cardholderName}'s ${paymentCard.cardNumber.slice(-4)}`,
+        cardholderName: paymentCard.cardholderName,
+        cardNumber: paymentCard.cardNumber,
+        expiryMonth,
+        expiryYear,
+        billingAddress: savedCard?.billingAddress || orderDeliveryAddress,
+        billingCity: savedCard?.billingCity || address?.city || "N/A",
+        billingState: savedCard?.billingState || address?.province || "",
+        billingCountry: savedCard?.billingCountry || address?.country || "Nepal",
+        postalCode: savedCard?.postalCode || address?.postalCode || "N/A",
+        isDefault: Boolean(saveCardAsDefault || saveCardDetails || savePaymentPreference)
+      });
     }
 
     for (const item of cart.rows) {
