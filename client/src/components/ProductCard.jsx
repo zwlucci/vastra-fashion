@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Heart, ShoppingBag } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -11,20 +11,18 @@ import { getErrorMessage } from "../api/client.js";
 
 export function ProductCard({ product }) {
   const { isAuthenticated } = useAuth();
-  const { addToCart, items } = useCart();
+  const { addToCart } = useCart();
   const { showNotice } = useNotification();
   const { isWishlisted, toggleWishlist } = useWishlist();
   const location = useLocation();
   const from = `${location.pathname}${location.search}`;
+  const [localStock, setLocalStock] = useState(product.stock);
   const wished = isWishlisted(product.id);
   const sizes = product.sizes || [];
   const colors = product.colors || [];
   const availableColors = colors.filter((color) => !product.colorStockStatus?.[color]);
   const allColorsOut = colors.length > 0 && availableColors.length === 0;
-  const quantityInCart = items
-    .filter((item) => item.product.id === product.id)
-    .reduce((sum, item) => sum + item.quantity, 0);
-  const canAdd = product.stock > quantityInCart && (!colors.length || availableColors.length > 0);
+  const canAdd = localStock > 0 && (!colors.length || availableColors.length > 0);
   const [selectedSize, setSelectedSize] = useState(sizes.length === 1 ? sizes[0] : "");
   const [selectedColor, setSelectedColor] = useState(availableColors.length === 1 ? availableColors[0] : "");
   const displayedPrice = selectedSize && product.sizePrices?.[selectedSize] !== undefined ? product.sizePrices[selectedSize] : product.price;
@@ -33,6 +31,10 @@ export function ProductCard({ product }) {
     ? media.find((item) => item.color?.trim().toLocaleLowerCase() === selectedColor.trim().toLocaleLowerCase())
     : null;
   const primaryMedia = selectedColorMedia || media.find((item) => !item.color?.trim()) || media[0] || { url: product.imageUrl, type: "image" };
+
+  useEffect(() => {
+    setLocalStock(product.stock);
+  }, [product.stock]);
 
   async function handleWishlist() {
     if (!isAuthenticated) {
@@ -60,11 +62,12 @@ export function ProductCard({ product }) {
       return;
     }
     if (!canAdd) {
-      showNotice(product.stock === 0 ? "This product is out of stock." : "You already have all available stock in your cart.");
+      showNotice(localStock === 0 ? "This product is out of stock." : "You already have all available stock in your cart.");
       return;
     }
     try {
       await addToCart(product.id, 1, selectedSize, selectedColor);
+      setLocalStock((current) => Math.max(0, Number(current || 0) - 1));
     } catch (error) {
       showNotice(getErrorMessage(error), "error");
     }
@@ -106,7 +109,7 @@ export function ProductCard({ product }) {
         <div className="flex items-center justify-between gap-3">
           <span className="font-bold">{money(displayedPrice)}</span>
           <button className="btn-primary px-3" disabled={!canAdd} onClick={handleAddToCart} type="button">
-            <ShoppingBag size={16} /> {allColorsOut ? "Colors out" : product.stock === 0 ? "Out" : canAdd ? "Add" : "Limit"}
+            <ShoppingBag size={16} /> {allColorsOut ? "Colors out" : localStock === 0 ? "Out" : canAdd ? "Add" : "Limit"}
           </button>
         </div>
       </div>

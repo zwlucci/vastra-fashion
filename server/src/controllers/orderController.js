@@ -6,6 +6,7 @@ import { updateStockAlertState } from "./productController.js";
 import { calculateCouponDiscount, getActiveCoupon } from "../utils/coupons.js";
 import { createOrderNotifications, createOrderNotificationsInTransaction, emitCreatedOrderNotifications } from "../utils/orderNotifications.js";
 import { assertForwardOrderTransition, assertOrderCancellable } from "../utils/orderStatusTransitions.js";
+import { RESERVATION_EXPIRED_MESSAGE, releaseExpiredReservations } from "../utils/cartReservations.js";
 
 const RETURN_PRIORITY = ["requested", "approved", "rejected", "completed"];
 
@@ -239,15 +240,20 @@ async function sendFinalReceiptOnce(orderId, email, detailedOrder) {
 export async function createOrder(req, res) {
   const { paymentMethod, fullName, phoneNumber, deliveryAddress, card, couponCode, saveShippingInfo, saveCardDetails } = req.body;
   const order = await withTransaction(async (client) => {
+    await releaseExpiredReservations(client, req.user.id);
     const cart = await client.query(
-      `SELECT cart_items.product_id, cart_items.quantity, cart_items.selected_size, cart_items.selected_color,
+      `SELECT cart_items.id AS cart_item_id, cart_items.product_id, cart_items.quantity,
+              cart_items.reserved_quantity, cart_items.reservation_status, cart_items.reservation_expires_at,
+              cart_items.selected_size, cart_items.selected_color,
               products.price, products.sizes, products.size_prices, products.colors, products.color_stock_status,
+              products.status AS product_status,
               products.stock, products.name
        FROM cart_items
        JOIN products ON products.id = cart_items.product_id
-       WHERE cart_items.user_id = $1 AND products.status = 'approved'
+       WHERE cart_items.user_id = $1
+         AND cart_items.reservation_status IN ('active', 'expired')
        ORDER BY cart_items.created_at
-       FOR UPDATE OF products`,
+       FOR UPDATE OF cart_items, products`,
       [req.user.id]
     );
 
@@ -255,6 +261,15 @@ export async function createOrder(req, res) {
 
     const totalsByProduct = new Map();
     for (const item of cart.rows) {
+      if (item.reservation_status !== "active" || new Date(item.reservation_expires_at).getTime() <= Date.now()) {
+        throw new AppError(RESERVATION_EXPIRED_MESSAGE, 409);
+      }
+      if (item.reserved_quantity < item.quantity) {
+        throw new AppError(`"${item.name}" is no longer available in the requested quantity. Update your cart before continuing.`, 409);
+      }
+      if (item.product_status !== "approved") {
+        throw new AppError(`"${item.name}" is no longer available. Remove it from your cart before continuing.`, 409);
+      }
       if ((item.sizes || []).length && !(item.sizes || []).includes(item.selected_size)) {
         throw new AppError(`The selected size for ${item.name} is no longer available.`, 400);
       }
@@ -269,9 +284,6 @@ export async function createOrder(req, res) {
         : Number(item.price);
       const totalQuantity = (totalsByProduct.get(item.product_id) || 0) + item.quantity;
       totalsByProduct.set(item.product_id, totalQuantity);
-      if (totalQuantity > item.stock) {
-        throw new AppError(`Only ${item.stock} items of ${item.name} are available in stock.`, 400);
-      }
     }
 
     const subtotal = cart.rows.reduce((sum, item) => sum + item.effectivePrice * item.quantity, 0);
@@ -343,7 +355,6 @@ export async function createOrder(req, res) {
          VALUES ($1, $2, $3, $4, $5, $6)`,
         [created.rows[0].id, item.product_id, item.selected_size || "", item.selected_color || "", item.quantity, item.effectivePrice]
       );
-      await client.query("UPDATE products SET stock = stock - $1 WHERE id = $2", [item.quantity, item.product_id]);
     }
 
     const updatedProducts = await client.query(
@@ -351,7 +362,13 @@ export async function createOrder(req, res) {
       [[...totalsByProduct.keys()]]
     );
 
-    await client.query("DELETE FROM cart_items WHERE user_id = $1", [req.user.id]);
+    await client.query(
+      `UPDATE cart_items
+       SET reservation_status = 'converted'
+       WHERE id = ANY($1::uuid[])
+         AND user_id = $2`,
+      [cart.rows.map((item) => item.cart_item_id), req.user.id]
+    );
     return { order: created.rows[0], products: updatedProducts.rows };
   });
 
@@ -862,6 +879,123 @@ export async function requestOrderReturn(req, res) {
     console.error(`[VASTRA return notification] ${error.message}`);
   }
   res.json({ order: detailedOrder, message: "Return request submitted successfully." });
+}
+
+export async function requestOrderItemReturn(req, res) {
+  const result = await withTransaction(async (client) => {
+    const orderResult = await client.query(
+      "SELECT * FROM orders WHERE id = $1 AND user_id = $2 FOR UPDATE",
+      [req.params.id, req.user.id]
+    );
+    const order = orderResult.rows[0];
+    if (!order) throw notFound("Order not found");
+    if (order.status !== "delivered") throw new AppError("Only delivered items can be returned.", 409);
+    const deliveredAt = order.delivered_at || order.updated_at;
+    if (!deliveredAt || Date.now() - new Date(deliveredAt).getTime() > 7 * 24 * 60 * 60 * 1000) {
+      throw new AppError("The 7-day return window has closed.", 409);
+    }
+
+    const itemResult = await client.query(
+      `SELECT order_items.id, order_items.return_status, order_items.product_id,
+              products.vendor_id, products.name AS product_name
+       FROM order_items
+       JOIN products ON products.id = order_items.product_id
+       WHERE order_items.id = $1
+         AND order_items.order_id = $2
+       FOR UPDATE OF order_items`,
+      [req.params.itemId, order.id]
+    );
+    const item = itemResult.rows[0];
+    if (!item) throw notFound("Order item not found");
+    if (item.return_status && item.return_status !== "none") {
+      throw new AppError("A return request already exists for this item.", 409);
+    }
+
+    const existing = await client.query(
+      `SELECT id
+       FROM order_item_return_requests
+       WHERE order_item_id = $1
+         AND status IN ('requested', 'approved')
+       LIMIT 1`,
+      [item.id]
+    );
+    if (existing.rows[0]) throw new AppError("A return request already exists for this item.", 409);
+
+    await client.query(
+      `UPDATE order_items
+       SET return_status = 'requested',
+           return_requested_at = NOW(),
+           return_reason = $1
+       WHERE id = $2`,
+      [req.body.reason || null, item.id]
+    );
+    const inserted = await client.query(
+      `INSERT INTO order_item_return_requests (order_id, order_item_id, user_id, vendor_id, status, customer_reason)
+       VALUES ($1, $2, $3, $4, 'requested', $5)
+       ON CONFLICT (order_item_id) DO NOTHING
+       RETURNING *`,
+      [order.id, item.id, req.user.id, item.vendor_id, req.body.reason || null]
+    );
+    if (!inserted.rows[0]) throw new AppError("A return request already exists for this item.", 409);
+
+    await recordOrderTimeline(client, {
+      orderId: order.id,
+      orderItemId: item.id,
+      actor: req.user,
+      status: "return_requested",
+      category: "return",
+      note: req.body.reason || "",
+      metadata: { returnRequestId: inserted.rows[0].id, vendorId: item.vendor_id, productId: item.product_id }
+    });
+    await syncOrderReturnSummary(client, order.id);
+
+    return {
+      orderId: order.id,
+      orderItemId: item.id,
+      productName: item.product_name,
+      returnRequestId: inserted.rows[0].id,
+      vendorId: item.vendor_id
+    };
+  });
+
+  const detailedOrder = (await getOrdersFor("WHERE orders.id = $1", [result.orderId]))[0];
+  emitOrderUpdated(detailedOrder, result.vendorId ? [result.vendorId] : []);
+  try {
+    const vendorTarget = `/vendor/dashboard/returned-products?returnRequestId=${result.returnRequestId}`;
+    await Promise.all([
+      createOrderNotifications([detailedOrder.userId], {
+        orderId: detailedOrder.id,
+        type: "return_requested",
+        title: "Return item requested",
+        message: `Your return request for ${result.productName} was submitted.`,
+        metadata: {
+          returnStatus: detailedOrder.returnStatus,
+          returnRequestId: result.returnRequestId,
+          orderItemId: result.orderItemId,
+          targetUrl: "/orders"
+        }
+      }),
+      result.vendorId ? createOrderNotifications([result.vendorId], {
+        orderId: detailedOrder.id,
+        type: "return_requested",
+        title: "Return item requested",
+        message: `A return was requested for ${result.productName}.`,
+        metadata: {
+          notificationType: "return_requested",
+          returnRequestId: result.returnRequestId,
+          orderId: detailedOrder.id,
+          orderItemId: result.orderItemId,
+          vendorId: result.vendorId,
+          destinationRoute: vendorTarget,
+          targetUrl: vendorTarget,
+          targetType: "return_request"
+        }
+      }) : Promise.resolve()
+    ]);
+  } catch (error) {
+    console.error(`[VASTRA return notification] ${error.message}`);
+  }
+  res.json({ order: detailedOrder, message: "Return item request submitted successfully." });
 }
 
 export async function updateOrderReturnStatus(req, res) {

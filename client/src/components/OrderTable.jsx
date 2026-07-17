@@ -6,85 +6,91 @@ import { money, statusClass } from "../utils/format.js";
 
 const statusOptions = ["pending", "processing", "shipped", "delivered", "cancelled"];
 
-export function OrderTable({ orders, onStatusChange, onReturnStatusChange, onCancel, onReturn, onViewDetails, actingOrderId = "" }) {
+function returnWindowOpen(order) {
+  const deliveredAt = order.deliveredAt ? new Date(order.deliveredAt).getTime() : 0;
+  return Boolean(deliveredAt && Date.now() - deliveredAt <= 7 * 24 * 60 * 60 * 1000);
+}
+
+export function OrderTable({ orders, onStatusChange, onReturnStatusChange, onCancel, onReturnItem, onViewDetails, actingOrderId = "", actingReturnItemId = "" }) {
   const [statusChange, setStatusChange] = useState(null);
   if (!orders.length) return <div className="panel py-10 text-center text-neutral-500">No orders yet.</div>;
   const showStatusActions = Boolean(onStatusChange && orders.some((order) => !["delivered", "cancelled"].includes(order.status)));
-  const showUserActions = Boolean(onCancel || onReturn);
+  const showUserActions = Boolean(onCancel || onReturnItem || onViewDetails);
   const showReturnActions = Boolean(onReturnStatusChange && orders.some((order) => ["requested", "approved"].includes(order.returnStatus)));
 
   return (
     <>
-    <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[980px] text-left text-sm">
-          <thead className="bg-neutral-100 text-xs uppercase text-neutral-500 dark:bg-neutral-800">
-            <tr>
-              <th className="px-4 py-3">Order</th>
-              <th className="px-4 py-3">Customer</th>
-              <th className="px-4 py-3">Items</th>
-              <th className="px-4 py-3">Total</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Payment</th>
-              {showStatusActions && <th className="px-4 py-3">Update delivery</th>}
-              {showReturnActions && <th className="px-4 py-3">Manage return</th>}
-              {showUserActions && <th className="px-4 py-3">Actions</th>}
-              <th className="px-4 py-3">Date</th>
-            </tr>
-          </thead>
-          <tbody>
-            {orders.map((order) => (
-              <tr className="border-t border-neutral-200 dark:border-neutral-800" key={order.id}>
-                <td className="px-4 py-3">
-                  <p className="font-mono text-xs">{order.id.slice(0, 8)}</p>
-                  {onViewDetails && <button className="mt-2 text-xs font-bold text-clay underline-offset-4 hover:underline" onClick={() => onViewDetails(order)} type="button">View details</button>}
-                </td>
-                <td className="px-4 py-3">{order.customerName || "You"}</td>
-                <td className="px-4 py-3">
-                  <div className="space-y-2">
-                    {order.items?.map((item) => (
-                      <div className="flex items-start gap-3" key={item.id}>
-                        <ProductImage className="h-10 w-8 rounded object-contain" src={item.imageUrl} alt={item.name} />
-                        <span className="min-w-0 flex-1">{item.name}{item.selectedSize ? ` · ${item.selectedSize}` : ""}{item.selectedColor ? ` · ${item.selectedColor}` : ""} x{item.quantity}<span className="mt-2 block"><DeliveryProgress order={order} /></span></span>
-                      </div>
-                    ))}
-                  </div>
-                </td>
-                <td className="px-4 py-3"><p className="font-semibold">{money(order.totalAmount)}</p>{order.discountAmount > 0 && <><p className="text-xs text-neutral-400 line-through">{money(order.subtotalAmount)}</p><p className="text-xs font-semibold text-green-600">-{money(order.discountAmount)}{order.couponCode ? ` · ${order.couponCode}` : ""}</p></>}</td>
-                <td className="px-4 py-3"><span className={`badge ${statusClass(order.status)}`}>{order.returnStatus === "requested" ? "Returning" : order.status}</span>{order.returnStatus && order.returnStatus !== "none" && <p className="mt-2 text-xs font-semibold capitalize text-clay">Return {order.returnStatus}</p>}</td>
-                <td className="px-4 py-3"><p className="font-semibold capitalize">{order.paymentMethod === "cod" ? "Cash on delivery" : order.paymentMethod}</p><p className="text-xs capitalize text-neutral-500">{order.status === "cancelled" ? "Order Cancelled" : order.paymentStatus}</p></td>
-                {showStatusActions && (
-                  <td className="px-4 py-3">
-                    {!['delivered', 'cancelled'].includes(order.status) && (
-                      <select aria-label={`Change status for order ${order.id}`} className="min-w-36" value={order.status} onChange={(event) => event.target.value !== order.status && setStatusChange({ orderId: order.id, from: order.status, to: event.target.value })}>
-                        {statusOptions.map((status) => <option value={status} key={status}>{status}</option>)}
-                      </select>
-                    )}
-                  </td>
-                )}
-                {showReturnActions && <td className="px-4 py-3">{order.returnStatus === "requested" ? <div className="flex min-w-40 gap-2"><button className="btn-secondary h-9 px-3" onClick={() => onReturnStatusChange(order.id, "approved")} type="button">Approve</button><button className="btn-secondary h-9 px-3 text-red-600" onClick={() => onReturnStatusChange(order.id, "rejected")} type="button">Reject</button></div> : order.returnStatus === "approved" ? <button className="btn-secondary h-9 px-3" onClick={() => onReturnStatusChange(order.id, "completed")} type="button">Complete</button> : null}</td>}
-                {showUserActions && <td className="px-4 py-3">
-                  <div className="flex min-w-36 flex-col items-start gap-2">
-                    {["pending", "processing"].includes(order.status) && <button className="btn-secondary h-9 px-3" disabled={actingOrderId === order.id} onClick={() => onCancel(order.id)} type="button">Cancel Order</button>}
-                    {order.status === "delivered" && order.returnStatus === "none" && (() => {
-                      const deliveredAt = order.deliveredAt ? new Date(order.deliveredAt).getTime() : 0;
-                      const open = deliveredAt && Date.now() - deliveredAt <= 7 * 24 * 60 * 60 * 1000;
-                      return open
-                        ? <button className="btn-secondary h-9 px-3" disabled={actingOrderId === order.id} onClick={() => onReturn(order.id)} type="button">Return Order</button>
-                        : <span className="text-xs text-neutral-500">Return window closed</span>;
-                    })()}
-                    {order.returnStatus && order.returnStatus !== "none" && <span className="text-xs font-semibold capitalize text-clay">Return {order.returnStatus}</span>}
-                    {onViewDetails && <button className="btn-secondary h-9 px-3" onClick={() => onViewDetails(order)} type="button">View Details</button>}
-                  </div>
-                </td>}
-                <td className="px-4 py-3">{new Date(order.createdAt).toLocaleDateString()}</td>
+      <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[980px] text-left text-sm">
+            <thead className="bg-neutral-100 text-xs uppercase text-neutral-500 dark:bg-neutral-800">
+              <tr>
+                <th className="px-4 py-3">Order</th>
+                <th className="px-4 py-3">Customer</th>
+                <th className="px-4 py-3">Items</th>
+                <th className="px-4 py-3">Total</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Payment</th>
+                {showStatusActions && <th className="px-4 py-3">Update delivery</th>}
+                {showReturnActions && <th className="px-4 py-3">Manage return</th>}
+                {showUserActions && <th className="px-4 py-3">Actions</th>}
+                <th className="px-4 py-3">Date</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {orders.map((order) => (
+                <tr className="border-t border-neutral-200 dark:border-neutral-800" key={order.id}>
+                  <td className="px-4 py-3">
+                    <p className="font-mono text-xs">{order.id.slice(0, 8)}</p>
+                    {onViewDetails && <button className="mt-2 text-xs font-bold text-clay underline-offset-4 hover:underline" onClick={() => onViewDetails(order)} type="button">View details</button>}
+                  </td>
+                  <td className="px-4 py-3">{order.customerName || "You"}</td>
+                  <td className="px-4 py-3">
+                    <div className="space-y-2">
+                      {order.items?.map((item) => {
+                        const canReturnItem = onReturnItem && order.status === "delivered" && returnWindowOpen(order) && (!item.returnStatus || item.returnStatus === "none");
+                        return (
+                          <div className="flex items-start gap-3" key={item.id}>
+                            <ProductImage className="h-10 w-8 rounded object-contain" src={item.imageUrl} alt={item.name} />
+                            <span className="min-w-0 flex-1">
+                              {item.name}{item.selectedSize ? ` - ${item.selectedSize}` : ""}{item.selectedColor ? ` - ${item.selectedColor}` : ""} x{item.quantity}
+                              <span className="mt-2 block"><DeliveryProgress order={order} /></span>
+                              {canReturnItem && <button className="mt-2 text-xs font-bold text-clay underline-offset-4 hover:underline" disabled={actingReturnItemId === item.id} onClick={() => onReturnItem(order, item)} type="button">{actingReturnItemId === item.id ? "Submitting..." : "Return Item"}</button>}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3"><p className="font-semibold">{money(order.totalAmount)}</p>{order.discountAmount > 0 && <><p className="text-xs text-neutral-400 line-through">{money(order.subtotalAmount)}</p><p className="text-xs font-semibold text-green-600">-{money(order.discountAmount)}{order.couponCode ? ` - ${order.couponCode}` : ""}</p></>}</td>
+                  <td className="px-4 py-3"><span className={`badge ${statusClass(order.status)}`}>{order.returnStatus === "requested" ? "Returning" : order.status}</span>{order.returnStatus && order.returnStatus !== "none" && <p className="mt-2 text-xs font-semibold capitalize text-clay">Return {order.returnStatus}</p>}</td>
+                  <td className="px-4 py-3"><p className="font-semibold capitalize">{order.paymentMethod === "cod" ? "Cash on delivery" : order.paymentMethod}</p><p className="text-xs capitalize text-neutral-500">{order.status === "cancelled" ? "Order Cancelled" : order.paymentStatus}</p></td>
+                  {showStatusActions && (
+                    <td className="px-4 py-3">
+                      {!["delivered", "cancelled"].includes(order.status) && (
+                        <select aria-label={`Change status for order ${order.id}`} className="min-w-36" value={order.status} onChange={(event) => event.target.value !== order.status && setStatusChange({ orderId: order.id, from: order.status, to: event.target.value })}>
+                          {statusOptions.map((status) => <option value={status} key={status}>{status}</option>)}
+                        </select>
+                      )}
+                    </td>
+                  )}
+                  {showReturnActions && <td className="px-4 py-3">{order.returnStatus === "requested" ? <div className="flex min-w-40 gap-2"><button className="btn-secondary h-9 px-3" onClick={() => onReturnStatusChange(order.id, "approved")} type="button">Approve</button><button className="btn-secondary h-9 px-3 text-red-600" onClick={() => onReturnStatusChange(order.id, "rejected")} type="button">Reject</button></div> : order.returnStatus === "approved" ? <button className="btn-secondary h-9 px-3" onClick={() => onReturnStatusChange(order.id, "completed")} type="button">Complete</button> : null}</td>}
+                  {showUserActions && <td className="px-4 py-3">
+                    <div className="flex min-w-36 flex-col items-start gap-2">
+                      {["pending", "processing"].includes(order.status) && <button className="btn-secondary h-9 px-3" disabled={actingOrderId === order.id} onClick={() => onCancel(order.id)} type="button">Cancel Order</button>}
+                      {order.status === "delivered" && order.returnStatus === "none" && (returnWindowOpen(order) ? <span className="text-xs text-neutral-500">Choose an item to return</span> : <span className="text-xs text-neutral-500">Return window closed</span>)}
+                      {order.returnStatus && order.returnStatus !== "none" && <span className="text-xs font-semibold capitalize text-clay">Return {order.returnStatus}</span>}
+                      {onViewDetails && <button className="btn-secondary h-9 px-3" onClick={() => onViewDetails(order)} type="button">View Details</button>}
+                    </div>
+                  </td>}
+                  <td className="px-4 py-3">{new Date(order.createdAt).toLocaleDateString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
-    <StatusConfirmModal change={statusChange} onCancel={() => setStatusChange(null)} onConfirm={({ orderId, to }) => onStatusChange(orderId, to)} />
+      <StatusConfirmModal change={statusChange} onCancel={() => setStatusChange(null)} onConfirm={({ orderId, to }) => onStatusChange(orderId, to)} />
     </>
   );
 }
