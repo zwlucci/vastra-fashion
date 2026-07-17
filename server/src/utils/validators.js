@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isProductCategory } from "../../../shared/productCategories.mjs";
 import { isProductSize } from "../../../shared/productSizes.mjs";
+import { isReturnReasonCategory } from "../../../shared/returnReasons.mjs";
 
 const optionalPhoneSchema = z.string().trim().regex(/^\+?[0-9 ()-]{7,20}$/, "Enter a valid phone number").optional().or(z.literal(""));
 const optionalBirthDateSchema = z.string().date().refine((value) => value >= "1900-01-01" && value <= new Date().toISOString().slice(0, 10), "Enter a valid date of birth").optional().or(z.literal(""));
@@ -383,9 +384,34 @@ export const paymentPreferenceSchema = z.object({
   }
 });
 
+const returnDetailsSchema = z.string().trim().max(500, "Additional details must be 500 characters or fewer").optional().default("");
+
 export const returnOrderSchema = z.object({
-  reason: z.string().trim().max(500).optional().default("")
-});
+  returnReasonCategory: z.string().trim().optional().default(""),
+  reasonCategory: z.string().trim().optional().default(""),
+  returnReasonDetails: returnDetailsSchema,
+  additionalDetails: returnDetailsSchema
+}).strict().superRefine((data, context) => {
+  const category = data.returnReasonCategory || data.reasonCategory;
+  const details = data.returnReasonDetails || data.additionalDetails;
+  if (!isReturnReasonCategory(category)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Choose a valid return reason",
+      path: ["returnReasonCategory"]
+    });
+  }
+  if (category === "Other" && !details.trim()) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Add details when choosing Other",
+      path: ["returnReasonDetails"]
+    });
+  }
+}).transform((data) => ({
+  returnReasonCategory: data.returnReasonCategory || data.reasonCategory,
+  returnReasonDetails: data.returnReasonDetails || data.additionalDetails
+}));
 
 export const couponCodeSchema = z.object({
   code: z.string().trim().min(2).max(40).regex(/^[A-Za-z0-9_-]+$/, "Use letters, numbers, dashes, or underscores only")
@@ -415,9 +441,8 @@ export const orderReturnStatusSchema = z.object({
 });
 
 export const vendorReturnDecisionSchema = z.object({
-  status: z.enum(["approved", "rejected"]),
-  reason: z.string().trim().min(5, "A reason is required").max(800)
-});
+  status: z.enum(["approved", "rejected"])
+}).strict();
 
 export const roleSchema = z.object({
   role: z.enum(["user", "vendor", "admin"])

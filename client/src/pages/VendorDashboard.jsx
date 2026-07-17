@@ -37,7 +37,6 @@ export function VendorDashboard() {
   const [orderPage, setOrderPage] = useState(1);
   const [returnPage, setReturnPage] = useState(1);
   const [returnDecision, setReturnDecision] = useState(null);
-  const [returnReason, setReturnReason] = useState("");
   const [savingReturn, setSavingReturn] = useState(false);
   const [actingOrderId, setActingOrderId] = useState("");
 
@@ -187,23 +186,17 @@ export function VendorDashboard() {
 
   function startReturnDecision(request, status) {
     setReturnDecision({ request, status });
-    setReturnReason("");
     setMessage("");
   }
 
   async function submitReturnDecision() {
     if (!returnDecision) return;
-    if (returnReason.trim().length < 5) {
-      setMessage("Add a reason with at least 5 characters.");
-      return;
-    }
     setSavingReturn(true);
     setMessage("");
     try {
-      const reason = returnReason.trim();
-      await api.patch(`/vendor/returns/${returnDecision.request.id}/decision`, { status: returnDecision.status, reason });
+      await api.patch(`/vendor/returns/${returnDecision.request.id}/decision`, { status: returnDecision.status });
       setMessage(`Return ${returnDecision.status === "approved" ? "accepted" : "rejected"}.`);
-      setReturns((current) => current.map((request) => request.id === returnDecision.request.id ? { ...request, status: returnDecision.status, vendorResponse: reason, decidedAt: new Date().toISOString() } : request));
+      setReturns((current) => current.map((request) => request.id === returnDecision.request.id ? { ...request, status: returnDecision.status, decidedAt: new Date().toISOString() } : request));
       setReturnDecision(null);
       await Promise.all([loadReturns(returnPage), loadOrders(), loadDashboardUpdates()]);
     } catch (error) {
@@ -326,10 +319,16 @@ export function VendorDashboard() {
               <button className="btn-secondary h-9 w-9 px-0" disabled={savingReturn} onClick={() => setReturnDecision(null)} type="button" title="Close"><X size={16} /></button>
             </div>
             <p className="text-sm text-neutral-500">Order #{returnDecision.request.orderId.slice(0, 8)} - {returnDecision.request.item?.name}</p>
-            <label className="block space-y-1 text-sm font-semibold">Reason<textarea className="w-full" rows="5" value={returnReason} onChange={(event) => setReturnReason(event.target.value)} /></label>
+            <div className="rounded-lg border border-neutral-200 p-3 text-sm dark:border-neutral-800">
+              <p className="font-bold">Customer return reason</p>
+              <ReturnReason request={returnDecision.request} />
+            </div>
+            <p className="text-sm text-neutral-600 dark:text-neutral-300">
+              {returnDecision.status === "approved" ? "Are you sure you want to accept this return request?" : "Are you sure you want to reject this return request?"}
+            </p>
             <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
               <button className="btn-secondary" disabled={savingReturn} onClick={() => setReturnDecision(null)} type="button">Cancel</button>
-              <button className="btn-primary" disabled={savingReturn || returnReason.trim().length < 5} onClick={submitReturnDecision} type="button">{savingReturn ? "Saving..." : "Confirm decision"}</button>
+              <button className="btn-primary" disabled={savingReturn} onClick={submitReturnDecision} type="button">{savingReturn ? "Saving..." : "Confirm decision"}</button>
             </div>
           </div>
         </div>
@@ -353,10 +352,9 @@ function ReturnedProducts({ returns, meta, page, setPage, onDecision }) {
         <div className="divide-y divide-neutral-200 rounded-lg border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-800">
           <div className="flex gap-3 p-3"><ProductImage className="h-20 w-16 shrink-0 rounded bg-neutral-100 object-contain dark:bg-neutral-950" src={request.item.imageUrl} alt={request.item.name} /><div className="min-w-0"><p className="font-bold">{request.item.name}</p><p className="text-sm text-neutral-500">{request.item.selectedSize ? `Size ${request.item.selectedSize} - ` : ""}{request.item.selectedColor ? `${request.item.selectedColor} - ` : ""}Quantity {request.item.quantity}</p><p className="text-xs text-neutral-500">{request.item.vendorName || request.item.brand || "Your product"}</p><p className="font-semibold">{money(request.item.priceAtPurchase * request.item.quantity)}</p></div></div>
         </div>
-        <div className="grid gap-3 text-sm sm:grid-cols-2"><Info label="Purchased" value={request.orderCreatedAt ? new Date(request.orderCreatedAt).toLocaleDateString() : "Not available"} /><Info label="Delivered" value={request.deliveredAt ? new Date(request.deliveredAt).toLocaleDateString() : "Not available"} /><Info label="Requested" value={request.requestedAt ? new Date(request.requestedAt).toLocaleDateString() : "Not available"} /><Info label="Contact" value={request.phoneNumber || "Not provided"} /><Info label="Reason" value={request.customerReason || "No reason provided"} /><Info label="Order total" value={money(request.totalAmount)} /></div>
+        <div className="grid gap-3 text-sm sm:grid-cols-2"><Info label="Purchased" value={request.orderCreatedAt ? new Date(request.orderCreatedAt).toLocaleDateString() : "Not available"} /><Info label="Delivered" value={request.deliveredAt ? new Date(request.deliveredAt).toLocaleDateString() : "Not available"} /><Info label="Requested" value={request.requestedAt ? new Date(request.requestedAt).toLocaleDateString() : "Not available"} /><Info label="Contact" value={request.phoneNumber || "Not provided"} /><ReturnReasonCard request={request} /><Info label="Order total" value={money(request.totalAmount)} /></div>
         {request.deliveryAddress && <Info label="Delivery address" value={request.deliveryAddress} />}
-        {request.vendorResponse && <p className="rounded-lg bg-clay/10 p-3 text-sm"><strong>Vendor response:</strong> {request.vendorResponse}</p>}
-        {request.status === "requested" && <div className="space-y-3"><p className="text-sm font-semibold text-neutral-600 dark:text-neutral-300">Add a response in the confirmation modal before saving your decision.</p><div className="flex flex-wrap gap-2"><button className="btn-primary" onClick={() => onDecision(request, "approved")} type="button">Accept Return</button><button className="btn-secondary text-red-600" onClick={() => onDecision(request, "rejected")} type="button">Reject Return</button></div></div>}
+        {request.status === "requested" && <div className="flex flex-wrap gap-2"><button className="btn-primary" onClick={() => onDecision(request, "approved")} type="button">Accept Return</button><button className="btn-secondary text-red-600" onClick={() => onDecision(request, "rejected")} type="button">Reject Return</button></div>}
       </article>)}
     </div>
     {totalPages > 1 && <Pagination page={page} total={meta.total} onChange={setPage} />}
@@ -365,4 +363,21 @@ function ReturnedProducts({ returns, meta, page, setPage, onDecision }) {
 
 function Info({ label, value }) {
   return <div className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800"><p className="text-xs font-bold uppercase tracking-wide text-neutral-500">{label}</p><p className="mt-1 break-words font-semibold">{value}</p></div>;
+}
+
+function ReturnReason({ request }) {
+  if (request.customerReasonCategory) {
+    return <div className="mt-2 space-y-1">
+      <p><span className="font-semibold">Reason:</span> {request.customerReasonCategory}</p>
+      {request.customerReasonDetails && <p><span className="font-semibold">Details:</span> {request.customerReasonDetails}</p>}
+    </div>;
+  }
+  return <p className="mt-2">{request.customerReason || "Reason not provided"}</p>;
+}
+
+function ReturnReasonCard({ request }) {
+  return <div className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
+    <p className="text-xs font-bold uppercase tracking-wide text-neutral-500">Reason</p>
+    <ReturnReason request={request} />
+  </div>;
 }

@@ -26,6 +26,15 @@ function statusLabel(status) {
   return String(status || "").replace(/_/g, " ");
 }
 
+function formatReturnReason(category, details, fallback = "") {
+  const normalizedCategory = String(category || "").trim();
+  const normalizedDetails = String(details || "").trim();
+  if (normalizedCategory && normalizedDetails) return `Reason: ${normalizedCategory}\nDetails: ${normalizedDetails}`;
+  if (normalizedCategory) return normalizedCategory;
+  if (normalizedDetails) return normalizedDetails;
+  return String(fallback || "").trim();
+}
+
 function actorFor(user) {
   if (!user) return { id: null, role: "system" };
   return { id: user.id, role: user.role };
@@ -42,7 +51,8 @@ async function recordOrderTimeline(client, { orderId, orderItemId = null, actor 
 
 async function syncOrderReturnSummary(client, orderId) {
   const { rows } = await client.query(
-    `SELECT return_status, return_requested_at, return_reason, return_vendor_response, return_decided_at, returned_at
+    `SELECT return_status, return_requested_at, return_reason, return_reason_category,
+            return_reason_details, return_vendor_response, return_decided_at, returned_at
      FROM order_items
      WHERE order_id = $1 AND return_status <> 'none'`,
     [orderId]
@@ -53,6 +63,8 @@ async function syncOrderReturnSummary(client, orderId) {
        SET return_status = 'none',
            return_requested_at = NULL,
            return_reason = NULL,
+           return_reason_category = NULL,
+           return_reason_details = NULL,
            return_vendor_reason = NULL,
            return_vendor_id = NULL,
            return_decided_at = NULL,
@@ -65,19 +77,24 @@ async function syncOrderReturnSummary(client, orderId) {
 
   const status = RETURN_PRIORITY.find((candidate) => rows.some((row) => row.return_status === candidate)) || rows[0].return_status;
   const representative = rows.find((row) => row.return_status === status) || rows[0];
+  const displayReason = formatReturnReason(representative.return_reason_category, representative.return_reason_details, representative.return_reason);
   await client.query(
     `UPDATE orders
      SET return_status = $1,
          return_requested_at = COALESCE($2, return_requested_at),
          return_reason = COALESCE($3, return_reason),
-         return_vendor_reason = COALESCE($4, return_vendor_reason),
-         return_decided_at = COALESCE($5, return_decided_at),
-         return_processed_at = COALESCE($6, return_processed_at)
-     WHERE id = $7`,
+         return_reason_category = COALESCE($4, return_reason_category),
+         return_reason_details = COALESCE($5, return_reason_details),
+         return_vendor_reason = COALESCE($6, return_vendor_reason),
+         return_decided_at = COALESCE($7, return_decided_at),
+         return_processed_at = COALESCE($8, return_processed_at)
+     WHERE id = $9`,
     [
       status,
       representative.return_requested_at,
-      representative.return_reason,
+      displayReason || null,
+      representative.return_reason_category,
+      representative.return_reason_details,
       representative.return_vendor_response,
       representative.return_decided_at,
       representative.returned_at,
@@ -113,7 +130,9 @@ function mapOrderRows(rows) {
         deliveredAt: row.delivered_at || (row.status === "delivered" ? row.updated_at : null),
         returnRequestedAt: row.return_requested_at,
         returnStatus: row.return_status || "none",
-        returnReason: row.return_reason || "",
+        returnReasonCategory: row.return_reason_category || "",
+        returnReasonDetails: row.return_reason_details || "",
+        returnReason: formatReturnReason(row.return_reason_category, row.return_reason_details, row.return_reason),
         returnVendorReason: row.return_vendor_reason || "",
         returnVendorId: row.return_vendor_id || "",
         returnDecidedAt: row.return_decided_at,
@@ -140,7 +159,9 @@ function mapOrderRows(rows) {
         priceAtPurchase: Number(row.price_at_purchase),
         returnRequestId: row.return_request_id || "",
         returnStatus: row.item_return_status || "none",
-        returnReason: row.item_return_reason || "",
+        returnReasonCategory: row.item_return_reason_category || "",
+        returnReasonDetails: row.item_return_reason_details || "",
+        returnReason: formatReturnReason(row.item_return_reason_category, row.item_return_reason_details, row.item_return_reason),
         returnVendorResponse: row.item_return_vendor_response || "",
         returnRequestedAt: row.item_return_requested_at,
         returnDecidedAt: row.item_return_decided_at,
@@ -165,6 +186,8 @@ async function getOrdersFor(where, params, client = null) {
             order_items.selected_size, order_items.selected_color, order_items.price_at_purchase,
             COALESCE(return_requests.id::text, '') AS return_request_id,
             COALESCE(return_requests.status, order_items.return_status, 'none') AS item_return_status,
+            COALESCE(return_requests.customer_reason_category, order_items.return_reason_category, '') AS item_return_reason_category,
+            COALESCE(return_requests.customer_reason_details, order_items.return_reason_details, '') AS item_return_reason_details,
             COALESCE(return_requests.customer_reason, order_items.return_reason, '') AS item_return_reason,
             COALESCE(return_requests.vendor_response, order_items.return_vendor_response, '') AS item_return_vendor_response,
             COALESCE(return_requests.requested_at, order_items.return_requested_at) AS item_return_requested_at,
@@ -506,6 +529,8 @@ export async function listVendorOrders(req, res) {
             order_items.selected_size, order_items.selected_color, order_items.price_at_purchase,
             COALESCE(return_requests.id::text, '') AS return_request_id,
             COALESCE(return_requests.status, order_items.return_status, 'none') AS item_return_status,
+            COALESCE(return_requests.customer_reason_category, order_items.return_reason_category, '') AS item_return_reason_category,
+            COALESCE(return_requests.customer_reason_details, order_items.return_reason_details, '') AS item_return_reason_details,
             COALESCE(return_requests.customer_reason, order_items.return_reason, '') AS item_return_reason,
             COALESCE(return_requests.vendor_response, order_items.return_vendor_response, '') AS item_return_vendor_response,
             COALESCE(return_requests.requested_at, order_items.return_requested_at) AS item_return_requested_at,
@@ -540,7 +565,8 @@ export async function listVendorReturnRequests(req, res) {
   );
   const { rows } = await query(
     `SELECT returns.id, returns.order_id, returns.order_item_id, returns.status, returns.customer_reason,
-            returns.vendor_response, returns.requested_at, returns.decided_at, returns.completed_at,
+            returns.customer_reason_category, returns.customer_reason_details, returns.vendor_response,
+            returns.requested_at, returns.decided_at, returns.completed_at,
             orders.created_at AS order_created_at, orders.delivered_at, orders.total_amount,
             orders.delivery_name, orders.delivery_phone, orders.delivery_address,
             users.name AS customer_name, users.email AS customer_email,
@@ -566,7 +592,9 @@ export async function listVendorReturnRequests(req, res) {
       orderId: row.order_id,
       orderItemId: row.order_item_id,
       status: row.status,
-      customerReason: row.customer_reason || "",
+      customerReasonCategory: row.customer_reason_category || "",
+      customerReasonDetails: row.customer_reason_details || "",
+      customerReason: formatReturnReason(row.customer_reason_category, row.customer_reason_details, row.customer_reason) || "Reason not provided",
       vendorResponse: row.vendor_response || "",
       requestedAt: row.requested_at,
       decidedAt: row.decided_at,
@@ -870,6 +898,8 @@ export async function cancelVendorOrder(req, res) {
 }
 
 export async function requestOrderReturn(req, res) {
+  const { returnReasonCategory, returnReasonDetails } = req.body;
+  const displayReason = formatReturnReason(returnReasonCategory, returnReasonDetails);
   const updated = await withTransaction(async (client) => {
     const orderResult = await client.query(
       "SELECT * FROM orders WHERE id = $1 AND user_id = $2 FOR UPDATE",
@@ -898,22 +928,32 @@ export async function requestOrderReturn(req, res) {
       throw new AppError("A return request already exists for this order.", 409);
     }
     const result = await client.query(
-      `UPDATE orders SET return_status = 'requested', return_requested_at = NOW(), return_reason = $1
-       WHERE id = $2 RETURNING *`,
-      [req.body.reason || null, order.id]
+      `UPDATE orders
+       SET return_status = 'requested',
+           return_requested_at = NOW(),
+           return_reason = $1,
+           return_reason_category = $2,
+           return_reason_details = $3
+       WHERE id = $4 RETURNING *`,
+      [displayReason || null, returnReasonCategory, returnReasonDetails || null, order.id]
     );
     for (const item of itemResult.rows) {
       await client.query(
         `UPDATE order_items
-         SET return_status = 'requested', return_requested_at = NOW(), return_reason = $1
-         WHERE id = $2`,
-        [req.body.reason || null, item.id]
+         SET return_status = 'requested',
+             return_requested_at = NOW(),
+             return_reason = $1,
+             return_reason_category = $2,
+             return_reason_details = $3
+         WHERE id = $4`,
+        [displayReason || null, returnReasonCategory, returnReasonDetails || null, item.id]
       );
       await client.query(
-        `INSERT INTO order_item_return_requests (order_id, order_item_id, user_id, vendor_id, status, customer_reason)
-         VALUES ($1, $2, $3, $4, 'requested', $5)
+        `INSERT INTO order_item_return_requests
+           (order_id, order_item_id, user_id, vendor_id, status, customer_reason, customer_reason_category, customer_reason_details)
+         VALUES ($1, $2, $3, $4, 'requested', $5, $6, $7)
          ON CONFLICT (order_item_id) DO NOTHING`,
-        [order.id, item.id, req.user.id, item.vendor_id, req.body.reason || null]
+        [order.id, item.id, req.user.id, item.vendor_id, displayReason || null, returnReasonCategory, returnReasonDetails || null]
       );
       await recordOrderTimeline(client, {
         orderId: order.id,
@@ -921,8 +961,8 @@ export async function requestOrderReturn(req, res) {
         actor: req.user,
         status: "return_requested",
         category: "return",
-        note: req.body.reason || "",
-        metadata: { vendorId: item.vendor_id }
+        note: displayReason,
+        metadata: { vendorId: item.vendor_id, returnReasonCategory, returnReasonDetails }
       });
     }
     return result.rows[0];
@@ -950,6 +990,8 @@ export async function requestOrderReturn(req, res) {
 }
 
 export async function requestOrderItemReturn(req, res) {
+  const { returnReasonCategory, returnReasonDetails } = req.body;
+  const displayReason = formatReturnReason(returnReasonCategory, returnReasonDetails);
   const result = await withTransaction(async (client) => {
     const orderResult = await client.query(
       "SELECT * FROM orders WHERE id = $1 AND user_id = $2 FOR UPDATE",
@@ -993,16 +1035,19 @@ export async function requestOrderItemReturn(req, res) {
       `UPDATE order_items
        SET return_status = 'requested',
            return_requested_at = NOW(),
-           return_reason = $1
-       WHERE id = $2`,
-      [req.body.reason || null, item.id]
+           return_reason = $1,
+           return_reason_category = $2,
+           return_reason_details = $3
+       WHERE id = $4`,
+      [displayReason || null, returnReasonCategory, returnReasonDetails || null, item.id]
     );
     const inserted = await client.query(
-      `INSERT INTO order_item_return_requests (order_id, order_item_id, user_id, vendor_id, status, customer_reason)
-       VALUES ($1, $2, $3, $4, 'requested', $5)
+      `INSERT INTO order_item_return_requests
+         (order_id, order_item_id, user_id, vendor_id, status, customer_reason, customer_reason_category, customer_reason_details)
+       VALUES ($1, $2, $3, $4, 'requested', $5, $6, $7)
        ON CONFLICT (order_item_id) DO NOTHING
        RETURNING *`,
-      [order.id, item.id, req.user.id, item.vendor_id, req.body.reason || null]
+      [order.id, item.id, req.user.id, item.vendor_id, displayReason || null, returnReasonCategory, returnReasonDetails || null]
     );
     if (!inserted.rows[0]) throw new AppError("A return request already exists for this item.", 409);
 
@@ -1012,8 +1057,8 @@ export async function requestOrderItemReturn(req, res) {
       actor: req.user,
       status: "return_requested",
       category: "return",
-      note: req.body.reason || "",
-      metadata: { returnRequestId: inserted.rows[0].id, vendorId: item.vendor_id, productId: item.product_id }
+      note: displayReason,
+      metadata: { returnRequestId: inserted.rows[0].id, vendorId: item.vendor_id, productId: item.product_id, returnReasonCategory, returnReasonDetails }
     });
     await syncOrderReturnSummary(client, order.id);
 
@@ -1093,19 +1138,17 @@ export async function updateOrderReturnStatus(req, res) {
     const saved = await client.query(
       `UPDATE order_item_return_requests
        SET status = $1,
-           vendor_response = $2,
            decided_at = NOW()
-       WHERE id = $3
+       WHERE id = $2
        RETURNING *`,
-      [req.body.status, req.body.reason, returnRequest.id]
+      [req.body.status, returnRequest.id]
     );
     await client.query(
       `UPDATE order_items
        SET return_status = $1,
-           return_vendor_response = $2,
            return_decided_at = NOW()
-       WHERE id = $3`,
-      [req.body.status, req.body.reason, returnRequest.order_item_id]
+       WHERE id = $2`,
+      [req.body.status, returnRequest.order_item_id]
     );
     await recordOrderTimeline(client, {
       orderId: returnRequest.order_id,
@@ -1113,7 +1156,7 @@ export async function updateOrderReturnStatus(req, res) {
       actor: req.user,
       status: req.body.status === "approved" ? "return_accepted" : "return_rejected",
       category: "return",
-      note: req.body.reason,
+      note: req.body.status === "approved" ? "Return accepted by vendor" : "Return rejected by vendor",
       metadata: { returnRequestId: returnRequest.id, productId: returnRequest.product_id }
     });
     await syncOrderReturnSummary(client, returnRequest.order_id);
@@ -1127,7 +1170,6 @@ export async function updateOrderReturnStatus(req, res) {
         returnRequestId: returnRequest.id,
         orderItemId: returnRequest.order_item_id,
         returnStatus: req.body.status,
-        reason: req.body.reason,
         targetUrl: `/orders`
       }
     });
