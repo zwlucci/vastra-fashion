@@ -33,7 +33,7 @@ export function DeliveryProgress({ order }) {
     return <div className="rounded-lg border border-clay/30 bg-clay/10 p-3 text-xs text-clay">
       <p className="font-black">{display}</p>
       {timestamp && <p>{new Date(timestamp).toLocaleString()}</p>}
-      {order.returnVendorReason && <p className="mt-1 text-neutral-700 dark:text-neutral-200">{order.returnVendorReason}</p>}
+      <ReturnReason order={order} />
     </div>;
   }
 
@@ -56,4 +56,15 @@ export function DeliveryProgress({ order }) {
       </div>
     </div>
   );
+}
+
+function ReturnReason({ order }) {
+  if (order.returnReasonCategory) {
+    return <div className="mt-1 text-neutral-700 dark:text-neutral-200">
+      <p><span className="font-semibold text-clay">Reason:</span> {order.returnReasonCategory}</p>
+      {order.returnReasonDetails && <p><span className="font-semibold text-clay">Details:</span> {order.returnReasonDetails}</p>}
+    </div>;
+  }
+  if (order.returnReason) return <p className="mt-1 text-neutral-700 dark:text-neutral-200">{order.returnReason}</p>;
+  return <p className="mt-1 text-neutral-700 dark:text-neutral-200">Reason not provided</p>;
 }

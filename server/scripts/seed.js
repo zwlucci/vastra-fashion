@@ -16,17 +16,27 @@ async function hash(password) {
   return bcrypt.hash(password, 12);
 }
 
+function formatSeedReturnReason(category, details, fallback = "") {
+  if (category && details) return `Reason: ${category}\nDetails: ${details}`;
+  return category || details || fallback || "";
+}
+
 async function insertOrder(client, users, products, order) {
+  const hasReturn = order.returnStatus && order.returnStatus !== "none";
+  const returnReasonCategory = order.returnReasonCategory || (order.returnReason ? "Other" : null);
+  const returnReasonDetails = order.returnReasonDetails || (returnReasonCategory === "Other" ? order.returnReason : null);
+  const returnReason = order.returnReason || formatSeedReturnReason(returnReasonCategory, returnReasonDetails);
   const created = await client.query(
     `INSERT INTO orders
       (user_id, total_amount, subtotal_amount, shipping_fee, discount_amount, status,
        payment_method, payment_status, delivery_name, delivery_phone, delivery_address,
        cardholder_name, card_last4, card_expiry, delivered_at, return_requested_at,
-       return_status, return_reason, return_vendor_reason, return_vendor_id,
+       return_status, return_reason, return_reason_category, return_reason_details,
+       return_vendor_reason, return_vendor_id,
        return_decided_at, return_processed_at, receipt_sent_at, return_receipt_sent_at, created_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
        $12, $13, $14, $15, $16, $17, $18, $19, $20,
-       $21, $22, $23, $24, COALESCE($25, NOW()))
+       $21, $22, $23, $24, $25, $26, COALESCE($27, NOW()))
      RETURNING id`,
     [
       users[order.user],
@@ -46,7 +56,9 @@ async function insertOrder(client, users, products, order) {
       order.deliveredAt || null,
       order.returnRequestedAt || null,
       order.returnStatus || "none",
-      order.returnReason || null,
+      returnReason || null,
+      returnReasonCategory,
+      returnReasonDetails,
       order.returnVendorReason || null,
       order.returnVendor ? users[order.returnVendor] : null,
       order.returnDecidedAt || null,
@@ -58,11 +70,55 @@ async function insertOrder(client, users, products, order) {
   );
 
   for (const item of order.items) {
-    await client.query(
-      `INSERT INTO order_items (order_id, product_id, selected_size, selected_color, quantity, price_at_purchase)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [created.rows[0].id, products[item.product], item.size || "", item.color || "", item.quantity, item.price]
+    const insertedItem = await client.query(
+      `INSERT INTO order_items
+        (order_id, product_id, selected_size, selected_color, quantity, price_at_purchase,
+         return_status, return_requested_at, return_reason, return_reason_category,
+         return_reason_details, return_vendor_response, return_decided_at, returned_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+       RETURNING id`,
+      [
+        created.rows[0].id,
+        products[item.product],
+        item.size || "",
+        item.color || "",
+        item.quantity,
+        item.price,
+        hasReturn ? order.returnStatus : "none",
+        hasReturn ? order.returnRequestedAt || order.deliveredAt || null : null,
+        hasReturn ? returnReason || null : null,
+        hasReturn ? returnReasonCategory : null,
+        hasReturn ? returnReasonDetails : null,
+        hasReturn ? order.returnVendorReason || null : null,
+        hasReturn ? order.returnDecidedAt || null : null,
+        hasReturn ? order.returnProcessedAt || null : null
+      ]
     );
+    if (hasReturn) {
+      const vendor = await client.query("SELECT vendor_id FROM products WHERE id = $1", [products[item.product]]);
+      await client.query(
+        `INSERT INTO order_item_return_requests
+          (order_id, order_item_id, user_id, vendor_id, status, customer_reason,
+           customer_reason_category, customer_reason_details, vendor_response,
+           requested_at, decided_at, completed_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10, NOW()), $11, $12)
+         ON CONFLICT (order_item_id) DO NOTHING`,
+        [
+          created.rows[0].id,
+          insertedItem.rows[0].id,
+          users[order.user],
+          vendor.rows[0]?.vendor_id || null,
+          order.returnStatus,
+          returnReason || null,
+          returnReasonCategory,
+          returnReasonDetails,
+          order.returnVendorReason || null,
+          order.returnRequestedAt || order.deliveredAt || null,
+          order.returnDecidedAt || null,
+          order.returnProcessedAt || null
+        ]
+      );
+    }
   }
 
   return created.rows[0].id;

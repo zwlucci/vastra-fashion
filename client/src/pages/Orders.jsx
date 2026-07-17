@@ -7,6 +7,14 @@ import { ProductImage } from "../components/ProductImage.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useMessages } from "../context/MessageContext.jsx";
 import { money, statusClass } from "../utils/format.js";
+import { RETURN_REASON_OPTIONS } from "../../../shared/returnReasons.mjs";
+
+const EMPTY_RETURN_REASON = { category: "", details: "" };
+
+function displayReturnReason(reason) {
+  if (!reason) return "Reason not provided";
+  return reason;
+}
 
 export function Orders() {
   const { user } = useAuth();
@@ -20,7 +28,7 @@ export function Orders() {
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [cancelConfirmation, setCancelConfirmation] = useState(null);
   const [returnConfirmation, setReturnConfirmation] = useState(null);
-  const [returnReason, setReturnReason] = useState("");
+  const [returnReason, setReturnReason] = useState(EMPTY_RETURN_REASON);
   const [actingReturnItemId, setActingReturnItemId] = useState("");
 
   async function loadOrders() {
@@ -60,7 +68,7 @@ export function Orders() {
     setSuccess("");
     setActingOrderId(orderId);
     try {
-      const { data } = await api.patch(`/orders/${orderId}/${action}`, action === "return" ? { reason: "" } : {});
+      const { data } = await api.patch(`/orders/${orderId}/${action}`, {});
       setOrders((current) => current.map((order) => order.id === orderId ? data.order : order));
       setSelectedOrder((current) => current?.id === orderId ? data.order : current);
       setSuccess(data.message);
@@ -75,14 +83,26 @@ export function Orders() {
     if (!order || !item || actingReturnItemId) return;
     setError("");
     setSuccess("");
+    const returnReasonDetails = returnReason.details.trim();
+    if (!returnReason.category) {
+      setError("Choose a return reason.");
+      return;
+    }
+    if (returnReason.category === "Other" && !returnReasonDetails) {
+      setError("Add details when choosing Other.");
+      return;
+    }
     setActingReturnItemId(item.id);
     try {
-      const { data } = await api.patch(`/orders/${order.id}/items/${item.id}/return`, { reason: returnReason });
+      const { data } = await api.patch(`/orders/${order.id}/items/${item.id}/return`, {
+        returnReasonCategory: returnReason.category,
+        returnReasonDetails
+      });
       setOrders((current) => current.map((entry) => entry.id === order.id ? data.order : entry));
       setSelectedOrder((current) => current?.id === order.id ? data.order : current);
       setSuccess(data.message);
       setReturnConfirmation(null);
-      setReturnReason("");
+      setReturnReason(EMPTY_RETURN_REASON);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -115,7 +135,7 @@ export function Orders() {
           canCancel={["user", "admin"].includes(user.role) && ["pending", "processing"].includes(selectedOrder.status) && (!selectedOrder.returnStatus || selectedOrder.returnStatus === "none")}
           loading={detailsLoading}
           onCancel={() => setCancelConfirmation(selectedOrder)}
-          onReturnItem={(item) => { setReturnConfirmation({ order: selectedOrder, item }); setReturnReason(""); }}
+          onReturnItem={(item) => { setReturnConfirmation({ order: selectedOrder, item }); setReturnReason(EMPTY_RETURN_REASON); }}
           actingReturnItemId={actingReturnItemId}
           order={selectedOrder}
         />
@@ -146,7 +166,7 @@ export function Orders() {
       </div>
       {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-200">{error}</p>}
       {success && <p className="rounded-md bg-clay/10 p-3 text-sm font-semibold text-clay">{success}</p>}
-      {loading ? <p>Loading orders...</p> : <OrderTable orders={orders} onViewDetails={openOrderDetails} onCancel={["user", "admin"].includes(user.role) ? (id) => runOrderAction(id, "cancel") : undefined} onReturnItem={["user", "admin"].includes(user.role) ? (order, item) => { setReturnConfirmation({ order, item }); setReturnReason(""); } : undefined} actingOrderId={actingOrderId} actingReturnItemId={actingReturnItemId} />}
+      {loading ? <p>Loading orders...</p> : <OrderTable orders={orders} onViewDetails={openOrderDetails} onCancel={["user", "admin"].includes(user.role) ? (id) => runOrderAction(id, "cancel") : undefined} onReturnItem={["user", "admin"].includes(user.role) ? (order, item) => { setReturnConfirmation({ order, item }); setReturnReason(EMPTY_RETURN_REASON); } : undefined} actingOrderId={actingOrderId} actingReturnItemId={actingReturnItemId} />}
       <ReturnItemModal
         request={returnConfirmation}
         reason={returnReason}
@@ -208,9 +228,10 @@ function OrderDetails({ order, loading, canCancel, acting, onCancel, onReturnIte
                 <p className="text-sm text-neutral-500">{item.vendorName || item.brand || "VASTRA Vendor"}</p>
                 <p className="mt-1 text-sm text-neutral-500">{item.selectedSize ? `Size ${item.selectedSize}` : "Size not selected"} - {item.selectedColor || "Color not selected"} - Quantity {item.quantity}</p>
                 {item.returnStatus && item.returnStatus !== "none" && (
-                  <p className="mt-2 rounded-md bg-clay/10 p-2 text-sm text-clay">
-                    Return {item.returnStatus}{item.returnReason ? ` - ${item.returnReason}` : ""}{item.returnVendorResponse ? ` - Vendor: ${item.returnVendorResponse}` : ""}
-                  </p>
+                  <div className="mt-2 rounded-md bg-clay/10 p-2 text-sm text-clay">
+                    <p className="font-bold capitalize">Return {item.returnStatus}</p>
+                    <ReturnReasonBlock item={item} />
+                  </div>
                 )}
                 {order.status === "delivered" && (!item.returnStatus || item.returnStatus === "none") && (() => {
                   const deliveredAt = order.deliveredAt ? new Date(order.deliveredAt).getTime() : 0;
@@ -296,10 +317,25 @@ function ReturnItemModal({ request, reason, saving, onReasonChange, onClose, onC
           <p className="mt-1 text-sm text-neutral-500">Quantity {item.quantity}</p>
         </div>
       </div>
-      <label className="block space-y-1 text-sm font-semibold">Return reason<textarea className="w-full" rows="4" value={reason} onChange={(event) => onReasonChange(event.target.value)} placeholder="Optional" /></label>
+      <fieldset className="space-y-3">
+        <legend className="text-sm font-bold">Return reason</legend>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {RETURN_REASON_OPTIONS.map((option) => (
+            <label className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 text-sm font-semibold ${reason.category === option ? "border-clay bg-clay/10 text-clay" : "border-neutral-200 dark:border-neutral-800"}`} key={option}>
+              <input className="mt-1" type="radio" name="returnReasonCategory" value={option} checked={reason.category === option} onChange={() => onReasonChange({ ...reason, category: option })} />
+              <span>{option}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <label className="block space-y-1 text-sm font-semibold">
+        <span>Additional details{reason.category === "Other" ? " (required)" : ""}</span>
+        <textarea className="w-full" maxLength={500} rows="4" value={reason.details} onChange={(event) => onReasonChange({ ...reason, details: event.target.value })} placeholder="Share any helpful details for the vendor" />
+        <span className="block text-right text-xs text-neutral-500">{reason.details.length}/500</span>
+      </label>
       <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
         <button className="btn-secondary" disabled={saving} onClick={onClose} type="button">Cancel</button>
-        <button className="btn-primary" disabled={saving} onClick={onConfirm} type="button">{saving ? "Submitting..." : "Confirm Return"}</button>
+        <button className="btn-primary" disabled={saving || !reason.category || (reason.category === "Other" && !reason.details.trim())} onClick={onConfirm} type="button">{saving ? "Submitting..." : "Confirm Return"}</button>
       </div>
     </div>
   </div>;
@@ -307,4 +343,14 @@ function ReturnItemModal({ request, reason, saving, onReasonChange, onClose, onC
 
 function Info({ label, value }) {
   return <div className="rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900"><p className="text-xs font-bold uppercase tracking-wide text-neutral-500">{label}</p><p className="mt-1 break-words font-semibold capitalize">{value || "Not provided"}</p></div>;
+}
+
+function ReturnReasonBlock({ item }) {
+  if (item.returnReasonCategory) {
+    return <div className="mt-1 space-y-1 text-neutral-700 dark:text-neutral-200">
+      <p><span className="font-semibold text-clay">Reason:</span> {item.returnReasonCategory}</p>
+      {item.returnReasonDetails && <p><span className="font-semibold text-clay">Details:</span> {item.returnReasonDetails}</p>}
+    </div>;
+  }
+  return <p className="mt-1 text-neutral-700 dark:text-neutral-200">{displayReturnReason(item.returnReason)}</p>;
 }

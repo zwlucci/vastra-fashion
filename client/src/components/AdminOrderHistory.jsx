@@ -25,7 +25,7 @@ export function AdminOrderHistory({ orders, focusedOrderId = "" }) {
         <div className="grid gap-3 sm:grid-cols-2"><Info label="Delivery address" value={selected.deliveryAddress} /><Info label="Order date" value={new Date(selected.createdAt).toLocaleString()} /><Info label="Payment method" value={selected.paymentMethod === "cod" ? "Cash on delivery" : selected.paymentMethod} capitalize /><Info label="Payment status" value={selected.paymentStatus} capitalize /></div>
         <section><h3 className="text-lg font-black">Order items</h3><div className="mt-3 divide-y divide-neutral-200 rounded-lg border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-800">{selected.items?.map((item) => <div className="flex gap-3 p-3" key={item.id}><ProductImage className="h-20 w-16 shrink-0 rounded bg-neutral-100 object-contain dark:bg-neutral-950" src={item.imageUrl} alt={item.name} /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-start justify-between gap-2"><p className="font-bold">{item.name}</p><p className="font-black">{money(item.priceAtPurchase * item.quantity)}</p></div><p className="text-sm text-neutral-500">Vendor: {item.vendorName || item.brand || "Unknown vendor"}</p><p className="text-sm text-neutral-500">{item.selectedSize ? `Size ${item.selectedSize} · ` : ""}{item.selectedColor ? `${item.selectedColor} · ` : ""}Quantity {item.quantity} · {money(item.priceAtPurchase)} each</p></div></div>)}</div></section>
         <div className="ml-auto max-w-sm space-y-2 border-t border-neutral-200 pt-4 text-sm dark:border-neutral-800"><Price label="Subtotal" value={selected.subtotalAmount} /><Price label="Shipping" value={selected.shippingFee} />{selected.discountAmount > 0 && <Price label={`Discount${selected.couponCode ? ` (${selected.couponCode})` : ""}`} value={-selected.discountAmount} />}<div className="flex justify-between pt-2 text-xl font-black"><span>Total</span><span>{money(selected.totalAmount)}</span></div></div>
-        {selected.returnStatus && selected.returnStatus !== "none" && <div className="rounded-lg bg-clay/10 p-4"><p className="font-bold capitalize">Return {selected.returnStatus}</p>{selected.returnReason && <p className="mt-1 text-sm">{selected.returnReason}</p>}</div>}
+        {selected.returnStatus && selected.returnStatus !== "none" && <div className="rounded-lg bg-clay/10 p-4"><p className="font-bold capitalize">Return {selected.returnStatus}</p><ReturnReason order={selected} /></div>}
       </div>}
     </DashboardDetailModal>
   </>;
@@ -34,3 +34,12 @@ export function AdminOrderHistory({ orders, focusedOrderId = "" }) {
 function Summary({ label, value }) { return <p><span className="text-neutral-500">{label}</span><br /><strong className="capitalize">{value || "—"}</strong></p>; }
 function Info({ label, value, capitalize = false }) { return <div className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800"><p className="text-xs font-bold uppercase tracking-wide text-neutral-500">{label}</p><p className={`mt-1 break-words font-semibold ${capitalize ? "capitalize" : ""}`}>{value || "Not provided"}</p></div>; }
 function Price({ label, value }) { return <p className="flex justify-between gap-4"><span className="text-neutral-500">{label}</span><strong>{money(value)}</strong></p>; }
+function ReturnReason({ order }) {
+  if (order.returnReasonCategory) {
+    return <div className="mt-1 space-y-1 text-sm">
+      <p><span className="font-semibold">Reason:</span> {order.returnReasonCategory}</p>
+      {order.returnReasonDetails && <p><span className="font-semibold">Details:</span> {order.returnReasonDetails}</p>}
+    </div>;
+  }
+  return <p className="mt-1 text-sm">{order.returnReason || "Reason not provided"}</p>;
+}
