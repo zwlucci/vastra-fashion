@@ -29,7 +29,7 @@ dotenv.config();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const app = express();
 const uploadsDir = path.resolve(__dirname, "../uploads");
-const uploadFolders = new Set(["products", "profiles", "wardrobe", "homepage-categories"]);
+const uploadFolders = new Set(["products", "profiles", "wardrobe", "homepage-categories", "product-reviews"]);
 const frontendPort = String(process.env.FRONTEND_PORT || "5173");
 export const allowedOrigins = new Set([
   process.env.CLIENT_URL,
@@ -80,6 +80,7 @@ fs.mkdirSync(path.join(uploadsDir, "products"), { recursive: true });
 fs.mkdirSync(path.join(uploadsDir, "profiles"), { recursive: true });
 fs.mkdirSync(path.join(uploadsDir, "wardrobe"), { recursive: true });
 fs.mkdirSync(path.join(uploadsDir, "homepage-categories"), { recursive: true });
+fs.mkdirSync(path.join(uploadsDir, "product-reviews"), { recursive: true });
 app.use(
   "/uploads",
   express.static(uploadsDir, {
