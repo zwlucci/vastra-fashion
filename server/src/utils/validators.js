@@ -303,7 +303,12 @@ const savedCardBaseSchema = {
   nickname: z.string().trim().min(1, "Card nickname is required").max(80),
   cardholderName: z.string().trim().min(2, "Cardholder name is required").max(100),
   expiryMonth: z.coerce.number().int().min(1).max(12),
-  expiryYear: z.coerce.number().int().min(new Date().getFullYear()).max(2100),
+  expiryYear: z.preprocess((value) => {
+    const digits = String(value ?? "").replace(/\D/g, "");
+    if (!digits) return value;
+    const year = Number(digits);
+    return digits.length <= 2 ? 2000 + year : year;
+  }, z.coerce.number().int().min(new Date().getFullYear()).max(2100)),
   billingAddress: z.string().trim().min(3, "Billing address is required").max(200),
   billingCity: z.string().trim().min(1, "Billing city is required").max(100),
   billingState: z.string().trim().max(100).optional().default(""),
