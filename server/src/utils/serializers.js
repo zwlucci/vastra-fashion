@@ -26,7 +26,7 @@ export function serializeUser(user) {
     shipping_address,
     saved_cardholder_name,
     saved_card_last4,
-    saved_card_expiry,
+    saved_card_expiry: _savedCardExpiry,
     failed_login_attempts: _failedLoginAttempts,
     locked_until: _lockedUntil,
     last_login_at: _lastLoginAt,
@@ -42,8 +42,7 @@ export function serializeUser(user) {
     shippingAddress: shipping_address || "",
     savedCard: saved_card_last4 ? {
       cardholderName: saved_cardholder_name || "",
-      last4: saved_card_last4,
-      expiryDate: saved_card_expiry || ""
+      last4: saved_card_last4
     } : null,
     dateOfBirth: serializeDateOnly(date_of_birth),
     profileImageUrl: profile_image_url,

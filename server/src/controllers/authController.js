@@ -1,10 +1,10 @@
 import bcrypt from "bcryptjs";
-import { createHash, randomInt } from "node:crypto";
+import { createHash, randomBytes, randomInt } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { query } from "../config/db.js";
 import { AppError } from "../utils/errors.js";
 import { saveProfileImage } from "../utils/imageUpload.js";
-import { sendLoginOtpEmail, sendVerificationEmail } from "../utils/mailer.js";
+import { sendLoginOtpEmail, sendPasswordResetEmail, sendVerificationEmail } from "../utils/mailer.js";
 import { serializeUser } from "../utils/serializers.js";
 
 function signToken(user) {
@@ -23,6 +23,8 @@ const MAX_LOGIN_ATTEMPTS = 5;
 const LOGIN_LOCK_MINUTES = 15;
 const SUSPICIOUS_ATTEMPTS = 2;
 const DUMMY_PASSWORD_HASH = "$2a$12$R9h/cIPz0gi.URNNX3kh2OPST9/PgBkqquzi.Ss7KIUgO2t0jWMUW";
+const PASSWORD_RESET_MINUTES = 30;
+const PASSWORD_RESET_GENERIC_MESSAGE = "If an account exists for this email, password reset instructions have been sent.";
 
 function bypassLoginSecurity(email) {
   return email.toLowerCase().endsWith("@example.com");
@@ -30,6 +32,17 @@ function bypassLoginSecurity(email) {
 
 function deviceHash(token) {
   return createHash("sha256").update(token).digest("hex");
+}
+
+function tokenHash(token) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function passwordResetUrl(token) {
+  const configured = process.env.PASSWORD_RESET_URL || `${process.env.CLIENT_URL || "http://localhost:5173"}/reset-password`;
+  const url = new URL(configured);
+  url.searchParams.set("token", token);
+  return url.toString();
 }
 
 function loginIp(req) {
@@ -365,6 +378,87 @@ export async function resendVerificationOtp(req, res) {
   await storeVerificationOtp(userRecord.id, otpHash, expires);
   await sendAndLogVerificationEmail(normalizedEmail, otp);
   res.json({ message: "A new verification OTP has been sent." });
+}
+
+export async function forgotPassword(req, res) {
+  const normalizedEmail = req.body.email.toLowerCase();
+  const { rows } = await query("SELECT id, email FROM users WHERE email = $1", [normalizedEmail]);
+  const userRecord = rows[0];
+
+  if (!userRecord) {
+    return res.json({ message: PASSWORD_RESET_GENERIC_MESSAGE });
+  }
+
+  const recent = await query(
+    `SELECT id
+     FROM password_reset_requests
+     WHERE user_id = $1
+       AND used_at IS NULL
+       AND created_at > NOW() - INTERVAL '2 minutes'
+     LIMIT 1`,
+    [userRecord.id]
+  );
+  if (recent.rows[0]) {
+    return res.json({ message: PASSWORD_RESET_GENERIC_MESSAGE });
+  }
+
+  const activeCount = await query(
+    `SELECT COUNT(*)::int AS count
+     FROM password_reset_requests
+     WHERE user_id = $1
+       AND created_at > NOW() - INTERVAL '30 minutes'`,
+    [userRecord.id]
+  );
+  if (activeCount.rows[0]?.count >= 5) {
+    return res.json({ message: PASSWORD_RESET_GENERIC_MESSAGE });
+  }
+
+  const token = randomBytes(32).toString("base64url");
+  await query("UPDATE password_reset_requests SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL", [userRecord.id]);
+  await query(
+    `INSERT INTO password_reset_requests (user_id, token_hash, expires_at)
+     VALUES ($1, $2, NOW() + ($3 * INTERVAL '1 minute'))`,
+    [userRecord.id, tokenHash(token), PASSWORD_RESET_MINUTES]
+  );
+
+  await sendPasswordResetEmail(userRecord.email, {
+    resetUrl: passwordResetUrl(token),
+    expiresMinutes: PASSWORD_RESET_MINUTES
+  });
+  res.json({ message: PASSWORD_RESET_GENERIC_MESSAGE });
+}
+
+export async function resetPassword(req, res) {
+  const hashedToken = tokenHash(req.body.token);
+  const { rows } = await query(
+    `SELECT password_reset_requests.*, users.password_hash
+     FROM password_reset_requests
+     JOIN users ON users.id = password_reset_requests.user_id
+     WHERE password_reset_requests.token_hash = $1`,
+    [hashedToken]
+  );
+  const request = rows[0];
+
+  if (!request || request.used_at) {
+    throw new AppError("This password-reset request is invalid or has already been used.", 400);
+  }
+  if (new Date(request.expires_at).getTime() < Date.now()) {
+    throw new AppError("This password-reset request has expired.", 400);
+  }
+
+  const passwordHash = await bcrypt.hash(req.body.password, 12);
+  await query(
+    `UPDATE users
+     SET password_hash = $1,
+         failed_login_attempts = 0,
+         locked_until = NULL
+     WHERE id = $2`,
+    [passwordHash, request.user_id]
+  );
+  await query("UPDATE password_reset_requests SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL", [request.user_id]);
+  await query("DELETE FROM trusted_devices WHERE user_id = $1", [request.user_id]);
+
+  res.json({ message: "Password reset successful. You can now log in." });
 }
 
 export async function me(req, res) {
