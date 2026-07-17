@@ -19,6 +19,9 @@ export function Orders() {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [cancelConfirmation, setCancelConfirmation] = useState(null);
+  const [returnConfirmation, setReturnConfirmation] = useState(null);
+  const [returnReason, setReturnReason] = useState("");
+  const [actingReturnItemId, setActingReturnItemId] = useState("");
 
   async function loadOrders() {
     const { data } = await api.get("/orders");
@@ -68,6 +71,25 @@ export function Orders() {
     }
   }
 
+  async function runReturnItem(order, item) {
+    if (!order || !item || actingReturnItemId) return;
+    setError("");
+    setSuccess("");
+    setActingReturnItemId(item.id);
+    try {
+      const { data } = await api.patch(`/orders/${order.id}/items/${item.id}/return`, { reason: returnReason });
+      setOrders((current) => current.map((entry) => entry.id === order.id ? data.order : entry));
+      setSelectedOrder((current) => current?.id === order.id ? data.order : current);
+      setSuccess(data.message);
+      setReturnConfirmation(null);
+      setReturnReason("");
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setActingReturnItemId("");
+    }
+  }
+
   async function openOrderDetails(order) {
     setError("");
     setSelectedOrder(order);
@@ -93,6 +115,8 @@ export function Orders() {
           canCancel={["user", "admin"].includes(user.role) && ["pending", "processing"].includes(selectedOrder.status) && (!selectedOrder.returnStatus || selectedOrder.returnStatus === "none")}
           loading={detailsLoading}
           onCancel={() => setCancelConfirmation(selectedOrder)}
+          onReturnItem={(item) => { setReturnConfirmation({ order: selectedOrder, item }); setReturnReason(""); }}
+          actingReturnItemId={actingReturnItemId}
           order={selectedOrder}
         />
         <CancelOrderModal
@@ -100,6 +124,14 @@ export function Orders() {
           saving={actingOrderId === cancelConfirmation?.id}
           onClose={() => setCancelConfirmation(null)}
           onConfirm={async (order) => { await runOrderAction(order.id, "cancel"); setCancelConfirmation(null); }}
+        />
+        <ReturnItemModal
+          request={returnConfirmation}
+          reason={returnReason}
+          saving={Boolean(actingReturnItemId)}
+          onReasonChange={setReturnReason}
+          onClose={() => { if (!actingReturnItemId) setReturnConfirmation(null); }}
+          onConfirm={() => runReturnItem(returnConfirmation?.order, returnConfirmation?.item)}
         />
       </section>
     );
@@ -114,12 +146,20 @@ export function Orders() {
       </div>
       {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-200">{error}</p>}
       {success && <p className="rounded-md bg-clay/10 p-3 text-sm font-semibold text-clay">{success}</p>}
-      {loading ? <p>Loading orders...</p> : <OrderTable orders={orders} onViewDetails={openOrderDetails} onCancel={["user", "admin"].includes(user.role) ? (id) => runOrderAction(id, "cancel") : undefined} onReturn={["user", "admin"].includes(user.role) ? (id) => runOrderAction(id, "return") : undefined} actingOrderId={actingOrderId} />}
+      {loading ? <p>Loading orders...</p> : <OrderTable orders={orders} onViewDetails={openOrderDetails} onCancel={["user", "admin"].includes(user.role) ? (id) => runOrderAction(id, "cancel") : undefined} onReturnItem={["user", "admin"].includes(user.role) ? (order, item) => { setReturnConfirmation({ order, item }); setReturnReason(""); } : undefined} actingOrderId={actingOrderId} actingReturnItemId={actingReturnItemId} />}
+      <ReturnItemModal
+        request={returnConfirmation}
+        reason={returnReason}
+        saving={Boolean(actingReturnItemId)}
+        onReasonChange={setReturnReason}
+        onClose={() => { if (!actingReturnItemId) setReturnConfirmation(null); }}
+        onConfirm={() => runReturnItem(returnConfirmation?.order, returnConfirmation?.item)}
+      />
     </section>
   );
 }
 
-function OrderDetails({ order, loading, canCancel, acting, onCancel }) {
+function OrderDetails({ order, loading, canCancel, acting, onCancel, onReturnItem, actingReturnItemId }) {
   const timeline = order.timeline?.length ? order.timeline : [{
     id: "fallback",
     statusName: "order placed",
@@ -172,6 +212,11 @@ function OrderDetails({ order, loading, canCancel, acting, onCancel }) {
                     Return {item.returnStatus}{item.returnReason ? ` - ${item.returnReason}` : ""}{item.returnVendorResponse ? ` - Vendor: ${item.returnVendorResponse}` : ""}
                   </p>
                 )}
+                {order.status === "delivered" && (!item.returnStatus || item.returnStatus === "none") && (() => {
+                  const deliveredAt = order.deliveredAt ? new Date(order.deliveredAt).getTime() : 0;
+                  const open = deliveredAt && Date.now() - deliveredAt <= 7 * 24 * 60 * 60 * 1000;
+                  return open ? <button className="btn-secondary mt-3 h-9 px-3" disabled={actingReturnItemId === item.id} onClick={() => onReturnItem(item)} type="button">{actingReturnItemId === item.id ? "Submitting..." : "Return Item"}</button> : null;
+                })()}
               </div>
               <div className="text-left md:text-right">
                 <p className="font-semibold">{money(item.priceAtPurchase)} each</p>
@@ -225,6 +270,36 @@ function CancelOrderModal({ order, saving, onClose, onConfirm }) {
       <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
         <button className="btn-secondary" disabled={saving} onClick={onClose} type="button">Keep Order</button>
         <button className="btn-primary bg-red-600 hover:bg-red-700 dark:bg-red-600 dark:text-white dark:hover:bg-red-700" disabled={saving} onClick={() => onConfirm(order)} type="button">{saving ? "Cancelling..." : "Cancel Order"}</button>
+      </div>
+    </div>
+  </div>;
+}
+
+function ReturnItemModal({ request, reason, saving, onReasonChange, onClose, onConfirm }) {
+  if (!request) return null;
+  const { item } = request;
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4 backdrop-blur-sm" onPointerDown={(event) => event.target === event.currentTarget && !saving && onClose()}>
+    <div aria-labelledby="return-item-title" aria-modal="true" className="panel w-full max-w-lg space-y-5 shadow-2xl" role="dialog" onPointerDown={(event) => event.stopPropagation()}>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-clay/10 text-clay"><AlertTriangle size={22} /></span>
+          <div><p className="text-sm font-bold uppercase tracking-wide text-clay">Return Item</p><h2 className="mt-1 text-2xl font-black" id="return-item-title">Return this item?</h2></div>
+        </div>
+        <button aria-label="Close" className="btn-secondary h-9 w-9 px-0" disabled={saving} onClick={onClose} type="button"><X size={16} /></button>
+      </div>
+      <p className="leading-7 text-neutral-600 dark:text-neutral-300">Are you sure you want to request a return for this item? This action will notify the vendor for review.</p>
+      <div className="flex gap-3 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
+        <ProductImage className="h-24 w-20 shrink-0 rounded bg-neutral-100 object-contain dark:bg-neutral-950" src={item.imageUrl} alt={item.name} />
+        <div className="min-w-0">
+          <p className="font-black">{item.name}</p>
+          <p className="mt-1 text-sm text-neutral-500">{item.selectedSize ? `Size ${item.selectedSize}` : "Size not selected"} - {item.selectedColor || "Color not selected"}</p>
+          <p className="mt-1 text-sm text-neutral-500">Quantity {item.quantity}</p>
+        </div>
+      </div>
+      <label className="block space-y-1 text-sm font-semibold">Return reason<textarea className="w-full" rows="4" value={reason} onChange={(event) => onReasonChange(event.target.value)} placeholder="Optional" /></label>
+      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+        <button className="btn-secondary" disabled={saving} onClick={onClose} type="button">Cancel</button>
+        <button className="btn-primary" disabled={saving} onClick={onConfirm} type="button">{saving ? "Submitting..." : "Confirm Return"}</button>
       </div>
     </div>
   </div>;

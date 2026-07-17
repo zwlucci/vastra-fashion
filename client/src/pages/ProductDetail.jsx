@@ -89,7 +89,7 @@ export function ProductDetail() {
   const quantityAlreadyInCart = items
     .filter((item) => item.product.id === product.id)
     .reduce((sum, item) => sum + item.quantity, 0);
-  const availableToAdd = Math.max(0, product.stock - quantityAlreadyInCart);
+  const availableToAdd = Math.max(0, Number(product.stock || 0));
 
   function selectColor(color) {
     if (product.colorStockStatus?.[color]) return;
@@ -141,6 +141,7 @@ export function ProductDetail() {
     }
     try {
       await addToCart(product.id, quantity, selectedSize, selectedColor);
+      setProduct((current) => current ? { ...current, stock: Math.max(0, Number(current.stock || 0) - quantity) } : current);
       showNotice("Added to cart.", "success");
     } catch (error) {
       showNotice(getErrorMessage(error), "error");

@@ -2,7 +2,9 @@ import dotenv from "dotenv";
 import http from "node:http";
 import { networkInterfaces } from "node:os";
 import { app, corsOrigin } from "./app.js";
+import { withTransaction } from "./config/db.js";
 import { initSocket } from "./socket.js";
+import { releaseExpiredReservations } from "./utils/cartReservations.js";
 
 dotenv.config();
 
@@ -15,6 +17,14 @@ if (!process.env.JWT_SECRET) {
 
 const server = http.createServer(app);
 initSocket(server, corsOrigin);
+
+const reservationCleanupMs = 60 * 1000;
+const cleanupTimer = setInterval(() => {
+  withTransaction((client) => releaseExpiredReservations(client)).catch((error) => {
+    console.error(`[VASTRA cart reservation cleanup] ${error.message}`);
+  });
+}, reservationCleanupMs);
+cleanupTimer.unref?.();
 
 server.listen(port, host, () => {
   const networkAddresses = Object.values(networkInterfaces())

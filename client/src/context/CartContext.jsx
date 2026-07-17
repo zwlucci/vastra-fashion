@@ -14,12 +14,13 @@ export function CartProvider({ children }) {
   async function refreshCart() {
     if (!isAuthenticated) {
       setItems([]);
-      return;
+      return [];
     }
     setLoading(true);
     try {
       const { data } = await api.get("/cart");
       setItems(data.items);
+      return data.items;
     } finally {
       setLoading(false);
     }
@@ -39,11 +40,13 @@ export function CartProvider({ children }) {
   async function addToCart(productId, quantity = 1, selectedSize = "", selectedColor = "") {
     const { data } = await api.post("/cart", { productId, quantity, selectedSize, selectedColor });
     setItems(data.items);
+    return data;
   }
 
   async function updateQuantity(itemId, quantity) {
     const { data } = await api.put(`/cart/${itemId}`, { quantity });
     setItems(data.items);
+    return data;
   }
 
   async function removeItem(itemId) {
