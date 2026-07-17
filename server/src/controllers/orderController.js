@@ -7,6 +7,14 @@ import { calculateCouponDiscount, getActiveCoupon } from "../utils/coupons.js";
 import { createOrderNotifications, createOrderNotificationsInTransaction, emitCreatedOrderNotifications } from "../utils/orderNotifications.js";
 import { assertForwardOrderTransition, assertOrderCancellable } from "../utils/orderStatusTransitions.js";
 import { RESERVATION_EXPIRED_MESSAGE, releaseExpiredReservations } from "../utils/cartReservations.js";
+import {
+  assertSavedAddressOwner,
+  assertSavedPaymentOwner,
+  buildSavedPaymentFromCard,
+  formatAddress,
+  saveCheckoutAddressInTransaction,
+  savePaymentPreferenceInTransaction
+} from "./checkoutDetailsController.js";
 
 const RETURN_PRIORITY = ["requested", "approved", "rejected", "completed"];
 
@@ -238,9 +246,31 @@ async function sendFinalReceiptOnce(orderId, email, detailedOrder) {
 }
 
 export async function createOrder(req, res) {
-  const { paymentMethod, fullName, phoneNumber, deliveryAddress, card, couponCode, saveShippingInfo, saveCardDetails } = req.body;
+  const {
+    paymentMethod,
+    fullName,
+    phoneNumber,
+    deliveryAddress,
+    savedAddressId,
+    paymentPreferenceId,
+    card,
+    couponCode,
+    saveShippingInfo,
+    saveAddress,
+    address,
+    saveCardDetails,
+    savePaymentPreference
+  } = req.body;
   const order = await withTransaction(async (client) => {
     await releaseExpiredReservations(client, req.user.id);
+    const savedAddress = await assertSavedAddressOwner(client, req.user.id, savedAddressId);
+    const savedPayment = await assertSavedPaymentOwner(client, req.user.id, paymentPreferenceId);
+    if (savedPayment && savedPayment.method !== paymentMethod) {
+      throw new AppError("Saved payment preference does not match the selected payment method.", 400);
+    }
+    const orderFullName = savedAddress ? savedAddress.full_name : fullName;
+    const orderPhoneNumber = savedAddress ? savedAddress.phone_number : phoneNumber;
+    const orderDeliveryAddress = savedAddress ? formatAddress(savedAddress) : deliveryAddress;
     const cart = await client.query(
       `SELECT cart_items.id AS cart_item_id, cart_items.product_id, cart_items.quantity,
               cart_items.reserved_quantity, cart_items.reservation_status, cart_items.reservation_expires_at,
@@ -305,9 +335,9 @@ export async function createOrder(req, res) {
         total,
         paymentMethod,
         paymentMethod === "card" ? "paid" : "pending",
-        fullName,
-        phoneNumber,
-        deliveryAddress,
+        orderFullName,
+        orderPhoneNumber,
+        orderDeliveryAddress,
         paymentMethod === "card" ? card.cardholderName : null,
         paymentMethod === "card" ? card.cardNumber.slice(-4) : null,
         paymentMethod === "card" ? card.expiryDate : null,
@@ -339,14 +369,20 @@ export async function createOrder(req, res) {
     if (saveShippingInfo) {
       await client.query(
         "UPDATE users SET name = $1, phone_number = $2, shipping_address = $3 WHERE id = $4",
-        [fullName, phoneNumber, deliveryAddress, req.user.id]
+        [orderFullName, orderPhoneNumber, orderDeliveryAddress, req.user.id]
       );
     }
-    if (paymentMethod === "card" && saveCardDetails) {
-      await client.query(
-        "UPDATE users SET saved_cardholder_name = $1, saved_card_last4 = $2, saved_card_expiry = $3 WHERE id = $4",
-        [card.cardholderName, card.cardNumber.slice(-4), card.expiryDate, req.user.id]
-      );
+    if ((saveAddress || saveShippingInfo) && !savedAddress) {
+      await saveCheckoutAddressInTransaction(client, req.user.id, req.user.email, {
+        ...address,
+        fullName: orderFullName,
+        phoneNumber: orderPhoneNumber,
+        deliveryAddress: orderDeliveryAddress,
+        detailedAddress: address?.detailedAddress || orderDeliveryAddress
+      });
+    }
+    if (paymentMethod === "card" && (saveCardDetails || savePaymentPreference) && card) {
+      await savePaymentPreferenceInTransaction(client, req.user.id, buildSavedPaymentFromCard(card));
     }
 
     for (const item of cart.rows) {

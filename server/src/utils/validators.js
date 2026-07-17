@@ -38,6 +38,19 @@ export const resendVerificationSchema = z.object({
   email: z.string().email()
 });
 
+export const forgotPasswordSchema = z.object({
+  email: z.string().trim().toLowerCase().email()
+});
+
+export const resetPasswordSchema = z.object({
+  token: z.string().trim().min(32, "Password reset link is invalid"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+  confirmPassword: z.string().min(8, "Confirm your new password")
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords must match",
+  path: ["confirmPassword"]
+});
+
 export const productSchema = z.object({
   name: z.string().min(2),
   description: z.string().min(5),
@@ -233,9 +246,23 @@ export const checkoutSchema = z.object({
   fullName: z.string().trim().min(2).max(100),
   phoneNumber: z.string().trim().regex(/^\+?[0-9 ()-]{7,20}$/, "Enter a valid phone number"),
   deliveryAddress: z.string().trim().min(5).max(300),
+  savedAddressId: z.string().uuid().optional().or(z.literal("")),
+  paymentPreferenceId: z.string().uuid().optional().or(z.literal("")),
   couponCode: z.string().trim().max(40).optional().default(""),
   saveShippingInfo: z.boolean().optional().default(false),
+  saveAddress: z.boolean().optional().default(false),
+  address: z.object({
+    label: z.enum(["Home", "Work", "Other"]).optional().default("Home"),
+    country: z.string().trim().min(2).max(80).optional().default("Nepal"),
+    province: z.string().trim().max(100).optional().default(""),
+    city: z.string().trim().max(100).optional().default(""),
+    area: z.string().trim().max(140).optional().default(""),
+    detailedAddress: z.string().trim().max(300).optional().default(""),
+    postalCode: z.string().trim().max(20).optional().default(""),
+    deliveryInstructions: z.string().trim().max(300).optional().default("")
+  }).optional(),
   saveCardDetails: z.boolean().optional().default(false),
+  savePaymentPreference: z.boolean().optional().default(false),
   card: z.object({
     cardholderName: z.string().trim().min(2).max(100),
     cardNumber: z.string().transform((value) => value.replace(/[ -]/g, "")).pipe(z.string().regex(/^\d{13,19}$/, "Enter a valid card number")),
@@ -252,6 +279,40 @@ export const checkoutSchema = z.object({
   const expiry = new Date(2000 + year, month, 0, 23, 59, 59, 999);
   if (expiry < new Date()) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "Card has expired", path: ["card", "expiryDate"] });
+  }
+});
+
+export const checkoutAddressSchema = z.object({
+  label: z.enum(["Home", "Work", "Other"]).optional().default("Home"),
+  fullName: z.string().trim().min(2).max(100),
+  phoneNumber: z.string().trim().regex(/^\+?[0-9 ()-]{7,20}$/, "Enter a valid phone number"),
+  country: z.string().trim().min(2).max(80).default("Nepal"),
+  province: z.string().trim().max(100).optional().default(""),
+  city: z.string().trim().min(1).max(100),
+  area: z.string().trim().max(140).optional().default(""),
+  detailedAddress: z.string().trim().min(5).max(300),
+  postalCode: z.string().trim().max(20).optional().default(""),
+  deliveryInstructions: z.string().trim().max(300).optional().default(""),
+  isDefault: z.boolean().optional().default(false)
+});
+
+export const paymentPreferenceSchema = z.object({
+  method: z.enum(["cod", "card", "esewa"]),
+  label: z.string().trim().max(80).optional().default(""),
+  cardholderName: z.string().trim().max(100).optional().default(""),
+  cardNumber: z.string().trim().optional().default(""),
+  cardBrand: z.string().trim().max(40).optional().default(""),
+  cardLast4: z.string().trim().regex(/^\d{4}$/, "Use the last four digits only").optional().or(z.literal("")),
+  providerReference: z.string().trim().max(160).optional().default(""),
+  isDefault: z.boolean().optional().default(false)
+}).superRefine((data, context) => {
+  if (data.method !== "card") return;
+  const normalizedCardNumber = data.cardNumber.replace(/[ -]/g, "");
+  if (!data.cardLast4 && !/^\d{13,19}$/.test(normalizedCardNumber)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Enter a card number or last four digits", path: ["cardNumber"] });
+  }
+  if (!data.cardholderName) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Cardholder name is required", path: ["cardholderName"] });
   }
 });
 

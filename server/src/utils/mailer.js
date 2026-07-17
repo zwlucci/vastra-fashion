@@ -246,6 +246,50 @@ export async function sendLoginOtpEmail(to, otp) {
   }
 }
 
+export function buildPasswordResetEmail({ resetUrl, expiresMinutes = 30 }) {
+  const html = `<!doctype html><html><body style="margin:0;background:#f5f1eb;font-family:Arial,sans-serif;color:#171717">
+    <div style="max-width:640px;margin:24px auto;background:#fff;border-radius:14px;overflow:hidden;border:1px solid #e5e5e5">
+      <div style="background:#171717;color:#fff;padding:22px 28px"><div style="font-size:25px;font-weight:800;letter-spacing:3px">VASTRA</div></div>
+      <div style="padding:28px">
+        <span style="display:inline-block;background:#f1e3da;color:#8a4f33;border-radius:999px;padding:6px 10px;font-size:12px;font-weight:700;text-transform:uppercase">Password reset</span>
+        <h1 style="font-size:26px;margin:16px 0 14px">Reset your VASTRA password</h1>
+        <p style="line-height:1.7;margin:0 0 16px">Use the secure button below to choose a new password. This link expires in ${expiresMinutes} minutes and can only be used once.</p>
+        <p style="margin:26px 0"><a href="${escapeHtml(resetUrl)}" style="display:inline-block;background:#171717;color:#fff;text-decoration:none;border-radius:8px;padding:12px 18px;font-weight:700">Reset password</a></p>
+        <p style="line-height:1.7;margin:0 0 16px;color:#525252">If you did not request this, you can ignore this email. VASTRA will never ask for your password by email.</p>
+        <p style="line-height:1.7;margin:0;color:#737373;font-size:12px">If the button does not work, paste this link into your browser: ${escapeHtml(resetUrl)}</p>
+      </div>
+    </div>
+  </body></html>`;
+  const text = [
+    "Reset your VASTRA password",
+    "",
+    `Use this secure link to choose a new password: ${resetUrl}`,
+    "",
+    `This link expires in ${expiresMinutes} minutes and can only be used once.`,
+    "If you did not request this, you can ignore this email.",
+    "VASTRA will never ask for your password by email."
+  ].join("\n");
+  return { html, text };
+}
+
+export async function sendPasswordResetEmail(to, payload) {
+  const config = getMailConfig();
+  const transporter = transporterFor(config);
+  const { html, text } = buildPasswordResetEmail(payload);
+
+  try {
+    await transporter.sendMail({
+      from: config.from,
+      to,
+      subject: "Reset your VASTRA password",
+      text,
+      html
+    });
+  } catch {
+    throw new AppError("Unable to send the reset email right now.", 502);
+  }
+}
+
 export async function sendOrderConfirmationEmail(to, order) {
   const config = getMailConfig();
   const transporter = transporterFor(config);

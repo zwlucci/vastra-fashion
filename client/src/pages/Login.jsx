@@ -78,6 +78,7 @@ export function Login() {
         {!challengeId ? <>
           <label className="block space-y-1"><span className="text-sm font-semibold">Email</span><input className="h-11 w-full" required type="email" autoComplete="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label>
           <label className="block space-y-1"><span className="text-sm font-semibold">Password</span><input className="h-11 w-full" required type="password" autoComplete="current-password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></label>
+          <div className="text-right"><Link className="text-sm font-semibold text-clay hover:underline" to="/forgot-password">Forgot password?</Link></div>
         </> : (
           <label className="block space-y-1"><span className="text-sm font-semibold">Login code</span><input className="h-12 w-full text-center text-xl tracking-[0.4em]" required inputMode="numeric" autoComplete="one-time-code" maxLength="6" pattern="[0-9]{6}" value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, "").slice(0, 6))} autoFocus /></label>
         )}

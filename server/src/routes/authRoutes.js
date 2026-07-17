@@ -1,12 +1,14 @@
 import { Router } from "express";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { login, me, register, resendLoginOtp, resendVerificationOtp, updateMe, verifyEmail, verifyLoginOtp } from "../controllers/authController.js";
+import { forgotPassword, login, me, register, resendLoginOtp, resendVerificationOtp, resetPassword, updateMe, verifyEmail, verifyLoginOtp } from "../controllers/authController.js";
 import { authenticateUser } from "../middleware/auth.js";
 import {
   loginSchema,
   loginOtpSchema,
+  forgotPasswordSchema,
   profileSchema,
   registerSchema,
+  resetPasswordSchema,
   resendVerificationSchema,
   resendLoginOtpSchema,
   validate,
@@ -17,6 +19,8 @@ export const authRoutes = Router();
 
 authRoutes.post("/register", validate(registerSchema), asyncHandler(register));
 authRoutes.post("/login", validate(loginSchema), asyncHandler(login));
+authRoutes.post("/forgot-password", validate(forgotPasswordSchema), asyncHandler(forgotPassword));
+authRoutes.post("/reset-password", validate(resetPasswordSchema), asyncHandler(resetPassword));
 authRoutes.post("/login/verify-otp", validate(loginOtpSchema), asyncHandler(verifyLoginOtp));
 authRoutes.post("/login/resend-otp", validate(resendLoginOtpSchema), asyncHandler(resendLoginOtp));
 authRoutes.post("/verify-email", validate(verifyEmailSchema), asyncHandler(verifyEmail));

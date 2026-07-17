@@ -8,6 +8,7 @@ import { AdminWardrobe } from "./pages/AdminWardrobe.jsx";
 import { Cart } from "./pages/Cart.jsx";
 import { CategoryProducts } from "./pages/CategoryProducts.jsx";
 import { Contact } from "./pages/Contact.jsx";
+import { ForgotPassword } from "./pages/ForgotPassword.jsx";
 import { Home } from "./pages/Home.jsx";
 import { Login } from "./pages/Login.jsx";
 import { Messages } from "./pages/Messages.jsx";
@@ -16,6 +17,7 @@ import { Orders } from "./pages/Orders.jsx";
 import { OrderSuccess } from "./pages/OrderSuccess.jsx";
 import { ProductDetail } from "./pages/ProductDetail.jsx";
 import { Register } from "./pages/Register.jsx";
+import { ResetPassword } from "./pages/ResetPassword.jsx";
 import { Shop } from "./pages/Shop.jsx";
 import { VendorDashboard } from "./pages/VendorDashboard.jsx";
 import { VendorProfile } from "./pages/VendorProfile.jsx";
@@ -34,6 +36,8 @@ export default function App() {
         <Route path="/vendors/:id" element={<VendorProfile />} />
         <Route path="/contact" element={<Contact />} />
         <Route path="/login" element={<Login />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/register" element={<Register />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/newsletter/unsubscribe" element={<NewsletterUnsubscribe />} />
