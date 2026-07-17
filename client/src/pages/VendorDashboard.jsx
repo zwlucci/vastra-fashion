@@ -39,6 +39,7 @@ export function VendorDashboard() {
   const [returnDecision, setReturnDecision] = useState(null);
   const [returnReason, setReturnReason] = useState("");
   const [savingReturn, setSavingReturn] = useState(false);
+  const [actingOrderId, setActingOrderId] = useState("");
 
   async function loadProducts() {
     const { data } = await api.get("/vendor/products");
@@ -81,13 +82,33 @@ export function VendorDashboard() {
     if (!socket) return undefined;
     const refreshProducts = () => loadProducts().catch(() => {});
     const refreshOrders = () => Promise.all([loadOrders(), loadIncome()]).catch(() => {});
+    let refreshTimer = null;
+    const scheduleOrderRefresh = () => {
+      window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => {
+        refreshOrders();
+        loadReturns().catch(() => {});
+        loadDashboardUpdates().catch(() => {});
+      }, 80);
+    };
     function handleDashboardUpdate({ scope }) {
       if (scope === "products") refreshProducts();
-      if (scope === "orders") { refreshOrders(); loadReturns().catch(() => {}); loadDashboardUpdates().catch(() => {}); }
+      if (scope === "orders") scheduleOrderRefresh();
     }
     socket.on("dashboard:updated", handleDashboardUpdate);
+    socket.on("order:created", scheduleOrderRefresh);
+    socket.on("order:status-updated", scheduleOrderRefresh);
+    socket.on("order:user-cancelled", scheduleOrderRefresh);
+    socket.on("order:vendor-cancelled", scheduleOrderRefresh);
+    socket.on("order:updated", scheduleOrderRefresh);
     return () => {
+      window.clearTimeout(refreshTimer);
       socket.off("dashboard:updated", handleDashboardUpdate);
+      socket.off("order:created", scheduleOrderRefresh);
+      socket.off("order:status-updated", scheduleOrderRefresh);
+      socket.off("order:user-cancelled", scheduleOrderRefresh);
+      socket.off("order:vendor-cancelled", scheduleOrderRefresh);
+      socket.off("order:updated", scheduleOrderRefresh);
     };
   }, [socket]);
 
@@ -138,12 +159,29 @@ export function VendorDashboard() {
 
   async function updateOrderStatus(id, status) {
     setMessage("");
+    setActingOrderId(id);
     try {
       await api.patch(`/vendor/orders/${id}/status`, { status });
       setMessage("Delivery status updated.");
       await Promise.all([loadOrders(), loadIncome()]);
     } catch (error) {
       setMessage(getErrorMessage(error));
+    } finally {
+      setActingOrderId("");
+    }
+  }
+
+  async function cancelVendorOrder(id) {
+    setMessage("");
+    setActingOrderId(id);
+    try {
+      const { data } = await api.patch(`/vendor/orders/${id}/cancel`);
+      setMessage(data.message || "Order cancelled.");
+      await Promise.all([loadOrders(), loadIncome(), loadDashboardUpdates()]);
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    } finally {
+      setActingOrderId("");
     }
   }
 
@@ -242,7 +280,7 @@ export function VendorDashboard() {
           <p className="text-sm font-bold uppercase tracking-wide text-clay">Delivery</p>
           <h2 className="text-2xl font-black">Orders for your products</h2>
         </div>
-        <VendorOrderTable orders={pagedOrders} onStatusChange={updateOrderStatus} />
+        <VendorOrderTable orders={pagedOrders} onStatusChange={updateOrderStatus} onCancel={cancelVendorOrder} actingOrderId={actingOrderId} />
         <Pagination page={orderPage} total={orders.length} onChange={setOrderPage} />
       </div>}
       {section === "returned-products" && <ReturnedProducts returns={returns} meta={returnMeta} page={returnPage} setPage={setReturnPage} onDecision={startReturnDecision} />}
