@@ -178,15 +178,38 @@ export async function emitCartStockInvalidated(product) {
   });
 }
 
-export function emitOrderUpdated(order, vendorIds = []) {
+function emitOrderEvent(eventName, order, vendorIds = []) {
   if (!io || !order) return;
   const userId = order.user_id || order.userId;
-  const payload = { orderId: order.id, userId, status: order.status };
-  io.to("admins").emit("order:updated", payload);
+  const payload = { orderId: order.id, userId, status: order.status, eventName };
+  const events = eventName === "order:updated" ? ["order:updated"] : [eventName, "order:updated"];
+  events.forEach((name) => io.to("admins").emit(name, payload));
   io.to("admins").emit("dashboard:updated", { scope: "orders" });
-  if (userId) io.to(`user:${userId}`).emit("order:updated", payload);
+  if (userId) {
+    events.forEach((name) => io.to(`user:${userId}`).emit(name, payload));
+  }
   [...new Set(vendorIds.filter(Boolean))].forEach((vendorId) => {
-    io.to(`user:${vendorId}`).emit("order:updated", payload);
+    events.forEach((name) => io.to(`user:${vendorId}`).emit(name, payload));
     io.to(`user:${vendorId}`).emit("dashboard:updated", { scope: "orders" });
   });
+}
+
+export function emitOrderCreated(order, vendorIds = []) {
+  emitOrderEvent("order:created", order, vendorIds);
+}
+
+export function emitOrderStatusUpdated(order, vendorIds = []) {
+  emitOrderEvent("order:status-updated", order, vendorIds);
+}
+
+export function emitOrderUserCancelled(order, vendorIds = []) {
+  emitOrderEvent("order:user-cancelled", order, vendorIds);
+}
+
+export function emitOrderVendorCancelled(order, vendorIds = []) {
+  emitOrderEvent("order:vendor-cancelled", order, vendorIds);
+}
+
+export function emitOrderUpdated(order, vendorIds = []) {
+  emitOrderEvent("order:updated", order, vendorIds);
 }

@@ -277,7 +277,7 @@ export const couponSchema = z.object({
 export const couponToggleSchema = z.object({ enabled: z.boolean() });
 
 export const orderStatusSchema = z.object({
-  status: z.enum(["pending", "processing", "shipped", "delivered", "cancelled"]),
+  status: z.enum(["processing", "shipped", "delivered"]),
   explanation: z.string().trim().max(500).optional().default("")
 });
 
