@@ -33,15 +33,15 @@ function GridCell({ component, className = "" }) {
   );
 }
 
-export function BundleImageGrid({ product, className = "" }) {
+export function BundleImageGrid({ product, className = "", forceGrid = false }) {
   const customImage = product?.customBundleImageUrl || "";
-  if (customImage) {
+  if (customImage && !forceGrid) {
     return <ProductImage className={`h-full w-full object-cover ${className}`} src={customImage} alt={product?.name || "Bundled product"} />;
   }
 
   const components = validComponents(product);
   if (components.length < 2) {
-    return <ProductImage className={`h-full w-full object-cover ${className}`} src="" alt={product?.name || "Bundled product"} />;
+    return <ProductImage className={`h-full w-full object-cover ${className}`} src={customImage} alt={product?.name || "Bundled product"} />;
   }
 
   if (components.length === 2) {
