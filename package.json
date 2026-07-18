@@ -12,6 +12,7 @@
     "transfer:export": "pnpm --filter server transfer:export",
     "transfer:import": "pnpm --filter server transfer:import",
     "transfer:verify": "pnpm --filter server transfer:verify",
+    "test": "pnpm --filter server test",
     "check": "pnpm --filter server check && pnpm --filter client build"
   },
   "workspaces": [

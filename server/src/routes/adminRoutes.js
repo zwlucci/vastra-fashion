@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getDashboardUpdates, getStats, listUsers, markDashboardUpdateSeen, updateUserRole } from "../controllers/adminController.js";
+import { getDashboardUpdates, getStats, listUserCodRefusals, listUsers, markDashboardUpdateSeen, revokeUserCodRefusal, updateUserRole } from "../controllers/adminController.js";
 import { listContactMessages } from "../controllers/contactController.js";
 import { openContactConversation } from "../controllers/messageController.js";
 import { getNewsletterAdmin, getNewsletterStats, listNewsletterBroadcasts, sendNewsletterBroadcast, sendNewsletterTest } from "../controllers/newsletterController.js";
@@ -18,7 +18,7 @@ import {
 } from "../controllers/homepageCategoryController.js";
 import { authenticateUser, requireAdmin } from "../middleware/auth.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { couponSchema, couponToggleSchema, homepageCategoryShortcutSchema, homepageCategoryVisibilitySchema, newsletterBroadcastSchema, newsletterTestSchema, productDecisionSchema, productSchema, reviewPinSchema, roleSchema, validate, wardrobeAdminSchema } from "../utils/validators.js";
+import { codRefusalRevocationSchema, couponSchema, couponToggleSchema, homepageCategoryShortcutSchema, homepageCategoryVisibilitySchema, newsletterBroadcastSchema, newsletterTestSchema, productDecisionSchema, productSchema, reviewPinSchema, roleSchema, validate, wardrobeAdminSchema } from "../utils/validators.js";
 
 export const adminRoutes = Router();
 
@@ -56,6 +56,8 @@ adminRoutes.get("/contact-messages", asyncHandler(listContactMessages));
 adminRoutes.post("/contact-messages/:id/conversation", asyncHandler(openContactConversation));
 adminRoutes.get("/users", asyncHandler(listUsers));
 adminRoutes.patch("/users/:id/role", validate(roleSchema), asyncHandler(updateUserRole));
+adminRoutes.get("/users/:id/cod-refusals", asyncHandler(listUserCodRefusals));
+adminRoutes.patch("/users/:id/cod-refusals/:recordId/revoke", validate(codRefusalRevocationSchema), asyncHandler(revokeUserCodRefusal));
 adminRoutes.get("/reviews", asyncHandler(listAdminReviews));
 adminRoutes.patch("/reviews/:id/pin", validate(reviewPinSchema), asyncHandler(setReviewPinned));
 adminRoutes.get("/entity-reviews", asyncHandler(listEntityReviewsForAdmin));

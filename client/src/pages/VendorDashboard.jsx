@@ -246,6 +246,20 @@ export function VendorDashboard() {
     setMessage("");
   }
 
+  async function reportCodRefusal(id, payload) {
+    setMessage("");
+    setActingOrderId(id);
+    try {
+      const { data } = await api.patch(`/vendor/orders/${id}/cod-refusal`, payload);
+      setMessage(data.message || "COD refusal recorded.");
+      await Promise.all([loadOrders(), loadIncome(), loadDashboardUpdates()]);
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    } finally {
+      setActingOrderId("");
+    }
+  }
+
   async function submitReturnDecision() {
     if (!returnDecision) return;
     setSavingReturn(true);
@@ -350,7 +364,7 @@ export function VendorDashboard() {
           <p className="text-sm font-bold uppercase tracking-wide text-clay">Delivery</p>
           <h2 className="text-2xl font-black">Orders for your products</h2>
         </div>
-        <VendorOrderTable orders={pagedOrders} onStatusChange={updateOrderStatus} onCancel={cancelVendorOrder} actingOrderId={actingOrderId} />
+        <VendorOrderTable orders={pagedOrders} onStatusChange={updateOrderStatus} onCancel={cancelVendorOrder} onReportRefusal={reportCodRefusal} actingOrderId={actingOrderId} />
         <Pagination page={orderPage} total={orders.length} onChange={setOrderPage} />
       </div>}
       {section === "returned-products" && <ReturnedProducts returns={returns} meta={returnMeta} page={returnPage} setPage={setReturnPage} onDecision={startReturnDecision} />}

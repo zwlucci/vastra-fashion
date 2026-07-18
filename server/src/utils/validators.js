@@ -2,6 +2,7 @@ import { z } from "zod";
 import { isProductCategory } from "../../../shared/productCategories.mjs";
 import { isProductSize } from "../../../shared/productSizes.mjs";
 import { isReturnReasonCategory } from "../../../shared/returnReasons.mjs";
+import { COD_REFUSAL_REASONS } from "./codPolicy.js";
 
 const optionalPhoneSchema = z.string().trim().regex(/^\+?[0-9 ()-]{7,20}$/, "Enter a valid phone number").optional().or(z.literal(""));
 const optionalBirthDateSchema = z.string().date().refine((value) => value >= "1900-01-01" && value <= new Date().toISOString().slice(0, 10), "Enter a valid date of birth").optional().or(z.literal(""));
@@ -462,6 +463,23 @@ export const orderStatusSchema = z.object({
   status: z.enum(["processing", "shipped", "delivered"]),
   explanation: z.string().trim().max(500).optional().default("")
 });
+
+export const codRefusalReportSchema = z.object({
+  reason: z.enum(COD_REFUSAL_REASONS),
+  additionalDetails: z.string().trim().max(500, "Additional details must be 500 characters or fewer").optional().default("")
+}).strict().superRefine((data, context) => {
+  if (data.reason === "Other" && !data.additionalDetails.trim()) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Add details when choosing Other",
+      path: ["additionalDetails"]
+    });
+  }
+});
+
+export const codRefusalRevocationSchema = z.object({
+  revocationReason: z.string().trim().min(5, "An admin reason is required").max(800)
+}).strict();
 
 export const orderReturnStatusSchema = z.object({
   status: z.enum(["approved", "rejected", "completed"]),

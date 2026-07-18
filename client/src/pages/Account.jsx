@@ -186,12 +186,30 @@ function addressSummary(address) {
   return [address.detailedAddress, address.area, address.city, address.province, address.postalCode, address.country].filter(Boolean).join(", ");
 }
 
+function CodReliabilityCard({ codPolicy }) {
+  if (!codPolicy) return null;
+  const restricted = !codPolicy.codAvailable;
+  return (
+    <section className={`rounded-lg border p-4 ${restricted ? "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950" : "border-neutral-200 dark:border-neutral-800"}`}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-sm font-bold uppercase tracking-wide text-clay">COD Order Reliability</p>
+          <h3 className="mt-1 text-xl font-black">COD Refusals: {codPolicy.activeRefusalCount} of {codPolicy.refusalLimit}</h3>
+          <p className="mt-1 text-sm font-semibold">COD Status: {codPolicy.statusLabel}</p>
+        </div>
+        <span className={`badge ${restricted ? "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100" : "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-200"}`}>{restricted ? "Restricted" : "Available"}</span>
+      </div>
+      <p className="mt-3 text-sm leading-6 text-neutral-600 dark:text-neutral-300">{codPolicy.warning || "Cash on Delivery is available. Three confirmed delivery refusals will disable COD for your account while online payment methods remain available."}</p>
+    </section>
+  );
+}
+
 function SavedCheckoutDetails() {
   const { user, updateProfile } = useAuth();
   const { showNotice } = useNotification();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [details, setDetails] = useState({ contact: null, addresses: [], paymentPreferences: [], savedPaymentMethods: [], demoSavedCardsEnabled: false });
+  const [details, setDetails] = useState({ contact: null, addresses: [], paymentPreferences: [], savedPaymentMethods: [], demoSavedCardsEnabled: false, codPolicy: null });
   const [contact, setContact] = useState({ fullName: user?.name || "", phoneNumber: user?.phoneNumber || "" });
   const [addressForm, setAddressForm] = useState(emptyAddress);
   const [editingAddressId, setEditingAddressId] = useState("");
@@ -620,6 +638,7 @@ function SavedCheckoutDetails() {
             </div>
             {details.demoSavedCardsEnabled && <button className="btn-primary shrink-0" onClick={beginAddSavedCard} type="button"><Plus size={16} /> Add test card</button>}
           </div>
+          <CodReliabilityCard codPolicy={details.codPolicy} />
           {details.demoSavedCardsEnabled ? <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">Development mode only. Use test card details. Do not enter a real debit or credit card.</p> : <p className="rounded-lg border border-neutral-200 p-3 text-sm text-neutral-500 dark:border-neutral-800">Demo saved cards are currently disabled.</p>}
           {(defaultSavedCard || defaultPaymentPreference) && <div className="rounded-lg border border-clay/30 bg-clay/5 p-3 text-sm"><span className="font-bold text-clay">Current default:</span> {defaultSavedCard ? `${defaultSavedCard.cardBrand} ${defaultSavedCard.maskedCardNumber}` : defaultPaymentPreference.displayName}</div>}
           <div className="grid gap-3">
