@@ -62,6 +62,44 @@ function firstProductImage(product) {
   return media.find((item) => item?.url && (!item.type || item.type === "image"))?.url || product.custom_bundle_image_url || product.image_url || "";
 }
 
+function bundleGridMessageImage(product) {
+  if (product.product_type !== "bundle") return firstProductImage(product);
+
+  const serialized = serializeProduct(product);
+  const bundleComponents = (serialized.bundleComponents || [])
+    .filter((component) => component.primaryImage || component.imageUrl)
+    .slice(0, 4)
+    .map((component) => ({
+      id: component.id,
+      componentProductId: component.componentProductId,
+      name: component.name,
+      componentProductName: component.componentProductName,
+      imageUrl: component.imageUrl,
+      primaryImage: component.primaryImage,
+      sortOrder: component.sortOrder
+    }));
+
+  if (bundleComponents.length < 2) return firstProductImage(product);
+
+  return JSON.stringify({
+    type: "bundle-grid",
+    product: {
+      id: serialized.id,
+      name: serialized.name,
+      productType: "bundle",
+      isBundle: true,
+      customBundleImageUrl: "",
+      bundleComponents
+    }
+  });
+}
+
+async function productWithBundleComponents(product) {
+  if (product.product_type !== "bundle") return product;
+  const { rows } = await query(`${productSelect()} WHERE products.id = $1`, [product.id]);
+  return rows[0] || product;
+}
+
 function minEffectivePrice(product) {
   const base = Number(product.price);
   const sizePrices = product.size_prices || {};
@@ -717,36 +755,39 @@ export async function setProductStatus(req, res) {
     return rows[0];
   });
 
-  if (product.vendor_id) {
-    const subjectNoun = product.product_type === "bundle" ? "Bundled product" : "Product";
-    const bodyNoun = product.product_type === "bundle" ? "bundled product" : "product";
+  const messageProduct = await productWithBundleComponents(product);
+
+  if (messageProduct.vendor_id) {
+    const subjectNoun = messageProduct.product_type === "bundle" ? "Bundled product" : "Product";
+    const bodyNoun = messageProduct.product_type === "bundle" ? "bundled product" : "product";
+    const messageImage = bundleGridMessageImage(messageProduct);
     if (req.params.status === "approved") {
       await sendSystemMessageToUser({
-        userId: product.vendor_id,
+        userId: messageProduct.vendor_id,
         senderId: req.user.id,
-        subject: `${subjectNoun} approved: ${product.name}`,
-        body: `Good news. Your ${bodyNoun} "${product.name}" has been approved and is now visible in the VASTRA shop.\n\nStatus: Approved\n\nThank you for keeping the marketplace fresh and polished.`,
-        imageUrl: firstProductImage(product)
+        subject: `${subjectNoun} approved: ${messageProduct.name}`,
+        body: `Good news. Your ${bodyNoun} "${messageProduct.name}" has been approved and is now visible in the VASTRA shop.\n\nStatus: Approved\n\nThank you for keeping the marketplace fresh and polished.`,
+        imageUrl: messageImage
       });
     }
 
     if (req.params.status === "rejected") {
       await sendSystemMessageToUser({
-        userId: product.vendor_id,
+        userId: messageProduct.vendor_id,
         senderId: req.user.id,
-        subject: `${subjectNoun} needs revision: ${product.name}`,
-        body: `Your ${bodyNoun} "${product.name}" was not approved.\n\nProduct ID: ${product.id}\nReason:\n${req.body.reason}\n\nPlease review the feedback before creating a revised listing.`,
-        imageUrl: firstProductImage(product)
+        subject: `${subjectNoun} needs revision: ${messageProduct.name}`,
+        body: `Your ${bodyNoun} "${messageProduct.name}" was not approved.\n\nProduct ID: ${messageProduct.id}\nReason:\n${req.body.reason}\n\nPlease review the feedback before creating a revised listing.`,
+        imageUrl: messageImage
       });
     }
   }
 
   await updateStockAlertState(product);
 
-  emitProductUpdated(product);
-  await emitCartStockInvalidated(product);
+  emitProductUpdated(messageProduct);
+  await emitCartStockInvalidated(messageProduct);
 
-  res.json({ product: serializeProduct(product) });
+  res.json({ product: serializeProduct(messageProduct) });
 }
 
 export async function updateStockAlertState(product) {

@@ -2,11 +2,56 @@ import { Archive, ArchiveRestore, Send, Trash2, X } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, getErrorMessage } from "../api/client.js";
+import { BundleImageGrid } from "../components/BundleImageGrid.jsx";
 import { GuestAccessCard } from "../components/GuestAccessCard.jsx";
 import { ProductMedia } from "../components/ProductMedia.jsx";
 import { UserAvatar } from "../components/UserAvatar.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useMessages } from "../context/MessageContext.jsx";
+
+function messageAttachment(message) {
+  if (!message.imageUrl) return null;
+  if (typeof message.imageUrl !== "string") {
+    return { type: "media", media: { url: message.imageUrl, type: message.mediaType } };
+  }
+
+  const trimmed = message.imageUrl.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed?.type === "bundle-grid" && parsed.product?.bundleComponents?.length >= 2) {
+        return { type: "bundle-grid", product: parsed.product };
+      }
+    } catch {
+      // Treat non-payload strings as normal media URLs.
+    }
+  }
+
+  return { type: "media", media: { url: message.imageUrl, type: message.mediaType } };
+}
+
+function MessageAttachment({ message }) {
+  const attachment = messageAttachment(message);
+  if (!attachment) return null;
+  if (attachment.type === "bundle-grid") {
+    return (
+      <BundleImageGrid
+        product={attachment.product}
+        forceGrid
+        className="mt-3 aspect-[16/10] w-72 max-w-full rounded-md"
+      />
+    );
+  }
+
+  return (
+    <ProductMedia
+      className="mt-3 h-auto max-h-72 w-auto max-w-full rounded-md bg-white/90 object-contain"
+      media={attachment.media}
+      alt="Message attachment"
+      controls
+    />
+  );
+}
 
 export function Messages() {
   const { isAuthenticated, user } = useAuth();
@@ -256,7 +301,7 @@ export function Messages() {
                     <div className={`flex ${mine ? "justify-end" : "justify-start"}`} key={message.id}>
                       <div className={`max-w-[78%] rounded-lg p-3 ${mine ? "bg-ink text-white dark:bg-white dark:text-ink" : system ? "bg-clay/10" : "bg-neutral-100 dark:bg-neutral-800"}`}>
                         <p className="text-xs font-bold uppercase tracking-wide opacity-70">{message.senderName}</p>
-                        {message.imageUrl && <ProductMedia className="mt-3 h-auto max-h-72 w-auto max-w-full rounded-md bg-white/90 object-contain" media={{ url: message.imageUrl, type: message.mediaType }} alt="Message attachment" controls />}
+                        <MessageAttachment message={message} />
                         <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{message.body}</p>
                         <p className="mt-2 text-xs opacity-60">{new Date(message.createdAt).toLocaleString()}</p>
                       </div>

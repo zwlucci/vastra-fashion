@@ -31,7 +31,7 @@ export function VendorDashboard() {
   const [returns, setReturns] = useState([]);
   const [returnMeta, setReturnMeta] = useState(null);
   const [dashboardUpdates, setDashboardUpdates] = useState({});
-  const [income, setIncome] = useState({ totalIncome: 0, totalOrders: 0, totalItems: 0, recentOrders: [] });
+  const [income, setIncome] = useState({ totalIncome: 0, totalOrders: 0, totalItems: 0, inventory: {}, recentOrders: [] });
   const [editing, setEditing] = useState(null);
   const [editingBundle, setEditingBundle] = useState(null);
   const [showForm, setShowForm] = useState(false);
@@ -269,7 +269,7 @@ export function VendorDashboard() {
       setMessage(`Return ${returnDecision.status === "approved" ? "accepted" : "rejected"}.`);
       setReturns((current) => current.map((request) => request.id === returnDecision.request.id ? { ...request, status: returnDecision.status, decidedAt: new Date().toISOString() } : request));
       setReturnDecision(null);
-      await Promise.all([loadReturns(returnPage), loadOrders(), loadDashboardUpdates()]);
+      await Promise.all([loadReturns(returnPage), loadOrders(), loadIncome(), loadDashboardUpdates()]);
     } catch (error) {
       setMessage(getErrorMessage(error));
     } finally {
@@ -307,7 +307,7 @@ export function VendorDashboard() {
         <div>
           <p className="text-sm font-bold uppercase tracking-wide text-clay">Income</p>
           <h2 className="text-2xl font-black">Delivered sales</h2>
-          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Income counts delivered orders for your products only.</p>
+          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Income counts delivered orders for your products only, minus approved returned items.</p>
         </div>
         <div className="grid gap-4 md:grid-cols-3">
           <div className="panel">
@@ -321,6 +321,17 @@ export function VendorDashboard() {
           <div className="panel">
             <p className="text-sm text-neutral-500">Items sold</p>
             <p className="mt-1 text-3xl font-black">{income.totalItems}</p>
+          </div>
+        </div>
+        <div className="panel">
+          <h3 className="text-xl font-black">Inventory</h3>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            {[["Low stock", income.inventory?.lowStock ?? 0], ["Low-stock bundles", income.inventory?.lowStockBundles ?? 0], ["Out of stock", income.inventory?.outOfStock ?? 0], ["Unavailable bundles", income.inventory?.unavailableBundles ?? 0], ["Recently added products", income.inventory?.recentlyAddedProducts ?? 0]].map(([label, value]) => (
+              <div className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800" key={label}>
+                <p className="text-xs font-bold uppercase tracking-wide text-neutral-500">{label}</p>
+                <p className="mt-1 text-2xl font-black">{value}</p>
+              </div>
+            ))}
           </div>
         </div>
         <div className="panel">

@@ -159,14 +159,9 @@ export async function getStats(req, res) {
       (SELECT COUNT(DISTINCT conversation_messages.conversation_id)::int
        FROM conversation_messages
        JOIN message_conversations ON message_conversations.id = conversation_messages.conversation_id
-       WHERE message_conversations.vendor_id IS NULL
-         AND conversation_messages.read_by_admin = false
-         AND conversation_messages.sender_role NOT IN ('admin', 'system-admin')) AS unread_chats,
-      (SELECT COUNT(*)::int FROM products WHERE status = 'approved' AND stock = 1) AS low_stock,
-      (SELECT COUNT(*)::int FROM products WHERE product_type = 'bundle' AND status = 'approved' AND stock = 1) AS low_stock_bundles,
-      (SELECT COUNT(*)::int FROM products WHERE status = 'approved' AND stock = 0) AS out_of_stock,
-      (SELECT COUNT(*)::int FROM products WHERE product_type = 'bundle' AND (status <> 'approved' OR stock = 0)) AS unavailable_bundles,
-      (SELECT COUNT(*)::int FROM products WHERE created_at >= NOW() - INTERVAL '7 days') AS recently_added_products,
+      WHERE message_conversations.vendor_id IS NULL
+        AND conversation_messages.read_by_admin = false
+        AND conversation_messages.sender_role NOT IN ('admin', 'system-admin')) AS unread_chats,
       (SELECT COUNT(*)::int FROM users WHERE role = 'user' AND created_at >= DATE_TRUNC('week', NOW())) AS new_users_this_week,
       (SELECT COUNT(*)::int
        FROM users
