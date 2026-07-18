@@ -20,8 +20,12 @@ const adminSections = {
     sql: "SELECT COUNT(*)::int AS count FROM products WHERE status = 'pending' AND created_at > $2",
     params: () => []
   },
-  "users-vendors": {
-    sql: "SELECT COUNT(*)::int AS count FROM users WHERE role IN ('user', 'vendor') AND id <> $1 AND GREATEST(created_at, updated_at) > $2",
+  users: {
+    sql: "SELECT COUNT(*)::int AS count FROM users WHERE role = 'user' AND id <> $1 AND GREATEST(created_at, updated_at) > $2",
+    params: () => []
+  },
+  vendors: {
+    sql: "SELECT COUNT(*)::int AS count FROM users WHERE role = 'vendor' AND id <> $1 AND GREATEST(created_at, updated_at) > $2",
     params: () => []
   },
   "order-history": {
