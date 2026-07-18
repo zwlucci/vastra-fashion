@@ -676,7 +676,7 @@ export async function listVendorReturnRequests(req, res) {
 }
 
 export async function getVendorIncomeSummary(req, res) {
-  // Delivered is the final fulfilled status in the current order_status enum, so only delivered vendor line items count as income.
+  // Delivered is the fulfilled order status; approved/completed returned line items no longer count as vendor income.
   const totals = await query(
     `SELECT
        COALESCE(SUM(order_items.quantity * order_items.price_at_purchase), 0)::numeric AS total_income,
@@ -685,7 +685,9 @@ export async function getVendorIncomeSummary(req, res) {
      FROM orders
      JOIN order_items ON order_items.order_id = orders.id
      JOIN products ON products.id = order_items.product_id
-     WHERE products.vendor_id = $1 AND orders.status = 'delivered'`,
+     WHERE products.vendor_id = $1
+       AND orders.status = 'delivered'
+       AND COALESCE(order_items.return_status, 'none') NOT IN ('approved', 'completed')`,
     [req.user.id]
   );
 
@@ -696,10 +698,24 @@ export async function getVendorIncomeSummary(req, res) {
      JOIN users ON users.id = orders.user_id
      JOIN order_items ON order_items.order_id = orders.id
      JOIN products ON products.id = order_items.product_id
-     WHERE products.vendor_id = $1 AND orders.status = 'delivered'
+     WHERE products.vendor_id = $1
+       AND orders.status = 'delivered'
+       AND COALESCE(order_items.return_status, 'none') NOT IN ('approved', 'completed')
      GROUP BY orders.id, orders.created_at, users.name
      ORDER BY orders.created_at DESC
      LIMIT 5`,
+    [req.user.id]
+  );
+
+  const inventory = await query(
+    `SELECT
+       COUNT(*) FILTER (WHERE status = 'approved' AND stock = 1)::int AS low_stock,
+       COUNT(*) FILTER (WHERE product_type = 'bundle' AND status = 'approved' AND stock = 1)::int AS low_stock_bundles,
+       COUNT(*) FILTER (WHERE status = 'approved' AND stock = 0)::int AS out_of_stock,
+       COUNT(*) FILTER (WHERE product_type = 'bundle' AND (status <> 'approved' OR stock = 0))::int AS unavailable_bundles,
+       COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')::int AS recently_added_products
+     FROM products
+     WHERE vendor_id = $1`,
     [req.user.id]
   );
 
@@ -708,6 +724,13 @@ export async function getVendorIncomeSummary(req, res) {
       totalIncome: Number(totals.rows[0].total_income),
       totalOrders: totals.rows[0].total_orders,
       totalItems: totals.rows[0].total_items,
+      inventory: {
+        lowStock: inventory.rows[0].low_stock,
+        lowStockBundles: inventory.rows[0].low_stock_bundles,
+        outOfStock: inventory.rows[0].out_of_stock,
+        unavailableBundles: inventory.rows[0].unavailable_bundles,
+        recentlyAddedProducts: inventory.rows[0].recently_added_products
+      },
       recentOrders: recent.rows.map((row) => ({
         id: row.id,
         createdAt: row.created_at,
