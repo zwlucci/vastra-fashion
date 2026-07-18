@@ -1,3 +1,5 @@
+import { buildCodPolicy } from "./codPolicy.js";
+
 function serializeDateOnly(value) {
   if (!value) return "";
   if (typeof value === "string") return value.slice(0, 10);
@@ -27,6 +29,7 @@ export function serializeUser(user) {
     saved_cardholder_name,
     saved_card_last4,
     saved_card_expiry: _savedCardExpiry,
+    cod_refusal_count,
     failed_login_attempts: _failedLoginAttempts,
     locked_until: _lockedUntil,
     last_login_at: _lastLoginAt,
@@ -34,7 +37,7 @@ export function serializeUser(user) {
     account_suspended: _accountSuspended,
     ...rest
   } = user;
-  return {
+  const serialized = {
     ...rest,
     brandName: brand_name,
     brandDescription: brand_description,
@@ -48,6 +51,10 @@ export function serializeUser(user) {
     profileImageUrl: profile_image_url,
     emailVerified: email_verified
   };
+  if (cod_refusal_count !== undefined) {
+    serialized.codPolicy = buildCodPolicy(cod_refusal_count);
+  }
+  return serialized;
 }
 
 export function serializeProduct(product) {

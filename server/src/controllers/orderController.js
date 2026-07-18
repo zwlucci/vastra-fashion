@@ -7,6 +7,7 @@ import { calculateCouponDiscount, getActiveCoupon } from "../utils/coupons.js";
 import { createOrderNotifications, createOrderNotificationsInTransaction, emitCreatedOrderNotifications } from "../utils/orderNotifications.js";
 import { assertForwardOrderTransition, assertOrderCancellable } from "../utils/orderStatusTransitions.js";
 import { RESERVATION_EXPIRED_MESSAGE, releaseExpiredReservations } from "../utils/cartReservations.js";
+import { COD_DISABLED_MESSAGE, activeCodRefusalCount, codRefusalNotificationMessage } from "../utils/codPolicy.js";
 import {
   assertSavedAddressOwner,
   assertSavedPaymentOwner,
@@ -33,6 +34,23 @@ function formatReturnReason(category, details, fallback = "") {
   if (normalizedCategory) return normalizedCategory;
   if (normalizedDetails) return normalizedDetails;
   return String(fallback || "").trim();
+}
+
+function mapCodRefusal(row) {
+  if (!row?.cod_refusal_record_id) return null;
+  return {
+    id: row.cod_refusal_record_id,
+    reason: row.cod_refusal_reason || "",
+    additionalDetails: row.cod_refusal_additional_details || "",
+    reportedByVendorId: row.cod_refusal_reported_by_vendor_id || "",
+    reportedByVendorName: row.cod_refusal_reported_by_vendor_name || "",
+    createdAt: row.cod_refusal_created_at,
+    revokedAt: row.cod_refusal_revoked_at,
+    revokedByAdminId: row.cod_refusal_revoked_by_admin_id || "",
+    revokedByAdminName: row.cod_refusal_revoked_by_admin_name || "",
+    revocationReason: row.cod_refusal_revocation_reason || "",
+    active: !row.cod_refusal_revoked_at
+  };
 }
 
 function actorFor(user) {
@@ -139,6 +157,7 @@ function mapOrderRows(rows) {
         returnProcessedAt: row.return_processed_at,
         receiptSentAt: row.receipt_sent_at,
         returnReceiptSentAt: row.return_receipt_sent_at,
+        codRefusal: mapCodRefusal(row),
         createdAt: row.created_at,
         items: [],
         timeline: []
@@ -195,13 +214,26 @@ async function getOrdersFor(where, params, client = null) {
             COALESCE(return_requests.completed_at, order_items.returned_at) AS item_returned_at,
             products.name AS product_name,
             products.vendor_id AS product_vendor_id, products.brand AS product_brand,
-            products.image_url AS product_image_url, vendor_users.name AS product_vendor_name
+            products.image_url AS product_image_url, vendor_users.name AS product_vendor_name,
+            cod_refusals.id AS cod_refusal_record_id,
+            cod_refusals.reason AS cod_refusal_reason,
+            cod_refusals.additional_details AS cod_refusal_additional_details,
+            cod_refusals.reported_by_vendor_id AS cod_refusal_reported_by_vendor_id,
+            cod_refusal_vendor.name AS cod_refusal_reported_by_vendor_name,
+            cod_refusals.created_at AS cod_refusal_created_at,
+            cod_refusals.revoked_at AS cod_refusal_revoked_at,
+            cod_refusals.revoked_by_admin_id AS cod_refusal_revoked_by_admin_id,
+            cod_refusal_admin.name AS cod_refusal_revoked_by_admin_name,
+            cod_refusals.revocation_reason AS cod_refusal_revocation_reason
      FROM orders
      JOIN users ON users.id = orders.user_id
      LEFT JOIN order_items ON order_items.order_id = orders.id
      LEFT JOIN order_item_return_requests AS return_requests ON return_requests.order_item_id = order_items.id
      LEFT JOIN products ON products.id = order_items.product_id
      LEFT JOIN users AS vendor_users ON vendor_users.id = products.vendor_id
+     LEFT JOIN cod_refusal_records AS cod_refusals ON cod_refusals.order_id = orders.id AND cod_refusals.revoked_at IS NULL
+     LEFT JOIN users AS cod_refusal_vendor ON cod_refusal_vendor.id = cod_refusals.reported_by_vendor_id
+     LEFT JOIN users AS cod_refusal_admin ON cod_refusal_admin.id = cod_refusals.revoked_by_admin_id
      ${where}
      ORDER BY orders.created_at DESC`,
     params
@@ -294,6 +326,12 @@ export async function createOrder(req, res) {
   } = req.body;
   const order = await withTransaction(async (client) => {
     await releaseExpiredReservations(client, req.user.id);
+    if (paymentMethod === "cod") {
+      const refusalCount = await activeCodRefusalCount(client, req.user.id);
+      if (refusalCount >= 3) {
+        throw new AppError(COD_DISABLED_MESSAGE, 403);
+      }
+    }
     const savedAddress = await assertSavedAddressOwner(client, req.user.id, savedAddressId);
     const savedPayment = await assertSavedPaymentOwner(client, req.user.id, paymentPreferenceId);
     if (savedPayment && savedPayment.method !== paymentMethod) {
@@ -538,12 +576,25 @@ export async function listVendorOrders(req, res) {
             COALESCE(return_requests.completed_at, order_items.returned_at) AS item_returned_at,
             products.name AS product_name,
             products.vendor_id AS product_vendor_id, products.brand AS product_brand,
-            products.image_url AS product_image_url
+            products.image_url AS product_image_url,
+            cod_refusals.id AS cod_refusal_record_id,
+            cod_refusals.reason AS cod_refusal_reason,
+            cod_refusals.additional_details AS cod_refusal_additional_details,
+            cod_refusals.reported_by_vendor_id AS cod_refusal_reported_by_vendor_id,
+            cod_refusal_vendor.name AS cod_refusal_reported_by_vendor_name,
+            cod_refusals.created_at AS cod_refusal_created_at,
+            cod_refusals.revoked_at AS cod_refusal_revoked_at,
+            cod_refusals.revoked_by_admin_id AS cod_refusal_revoked_by_admin_id,
+            cod_refusal_admin.name AS cod_refusal_revoked_by_admin_name,
+            cod_refusals.revocation_reason AS cod_refusal_revocation_reason
      FROM orders
      JOIN users ON users.id = orders.user_id
      JOIN order_items ON order_items.order_id = orders.id
      LEFT JOIN order_item_return_requests AS return_requests ON return_requests.order_item_id = order_items.id
      JOIN products ON products.id = order_items.product_id
+     LEFT JOIN cod_refusal_records AS cod_refusals ON cod_refusals.order_id = orders.id AND cod_refusals.revoked_at IS NULL
+     LEFT JOIN users AS cod_refusal_vendor ON cod_refusal_vendor.id = cod_refusals.reported_by_vendor_id
+     LEFT JOIN users AS cod_refusal_admin ON cod_refusal_admin.id = cod_refusals.revoked_by_admin_id
      WHERE products.vendor_id = $1
      ORDER BY orders.created_at DESC`,
     [req.user.id]
@@ -895,6 +946,114 @@ export async function cancelVendorOrder(req, res) {
     cancelledBy: "vendor"
   });
   res.json({ order: detailedOrder, message: "Order cancelled successfully." });
+}
+
+export async function reportCodDeliveryRefusal(req, res) {
+  const { reason, additionalDetails } = req.body;
+  const result = await withTransaction(async (client) => {
+    const orderResult = await client.query(
+      `SELECT orders.*, users.email AS customer_email
+       FROM orders
+       JOIN users ON users.id = orders.user_id
+       WHERE orders.id = $1
+       FOR UPDATE OF orders`,
+      [req.params.id]
+    );
+    const order = orderResult.rows[0];
+    if (!order) throw notFound("Order not found");
+    if (order.payment_method !== "cod") {
+      throw new AppError("Only Cash on Delivery orders can be marked as customer-refused.", 400);
+    }
+    if (order.status !== "shipped") {
+      throw new AppError("Only shipped COD orders can be marked as customer-refused before delivery is finalized.", 409);
+    }
+    if (order.return_status && order.return_status !== "none") {
+      throw new AppError("Orders with an active return cannot be marked as COD delivery-refused.", 409);
+    }
+
+    const ownership = await client.query(
+      `SELECT 1
+       FROM order_items
+       JOIN products ON products.id = order_items.product_id
+       WHERE order_items.order_id = $1
+         AND products.vendor_id = $2
+       LIMIT 1`,
+      [order.id, req.user.id]
+    );
+    if (!ownership.rows[0]) throw notFound("Order not found or not owned by vendor");
+
+    const inserted = await client.query(
+      `INSERT INTO cod_refusal_records
+         (user_id, order_id, reported_by_vendor_id, reason, additional_details)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (order_id) WHERE revoked_at IS NULL DO NOTHING
+       RETURNING *`,
+      [order.user_id, order.id, req.user.id, reason, additionalDetails || ""]
+    );
+    if (!inserted.rows[0]) {
+      throw new AppError("This order already has an active COD refusal record.", 409);
+    }
+
+    const updated = await client.query(
+      `UPDATE orders
+       SET status = 'delivery_refused'::order_status
+       WHERE id = $1
+       RETURNING *`,
+      [order.id]
+    );
+    await recordOrderTimeline(client, {
+      orderId: order.id,
+      actor: req.user,
+      status: "delivery_refused",
+      category: "order",
+      note: reason,
+      metadata: { codRefusalRecordId: inserted.rows[0].id, additionalDetails: additionalDetails || "" }
+    });
+
+    const activeCount = await activeCodRefusalCount(client, order.user_id);
+    const notifications = await createOrderNotificationsInTransaction(client, [order.user_id], {
+      orderId: order.id,
+      type: "cod_refusal_recorded",
+      title: activeCount >= 3 ? "Cash on Delivery disabled" : "COD delivery refusal recorded",
+      message: codRefusalNotificationMessage(activeCount),
+      metadata: {
+        status: "delivery_refused",
+        codRefusalCount: activeCount,
+        targetUrl: `/orders?orderId=${order.id}`
+      }
+    });
+
+    return {
+      order: { ...updated.rows[0], customer_email: order.customer_email },
+      refusalRecord: inserted.rows[0],
+      activeCount,
+      notifications
+    };
+  });
+
+  await emitCreatedOrderNotifications(result.notifications);
+  const vendors = await query(
+    `SELECT DISTINCT products.vendor_id FROM order_items
+     JOIN products ON products.id = order_items.product_id
+     WHERE order_items.order_id = $1`,
+    [req.params.id]
+  );
+  const detailedOrder = (await getOrdersFor("WHERE orders.id = $1", [req.params.id]))[0];
+  emitOrderStatusUpdated(detailedOrder, vendors.rows.map((row) => row.vendor_id));
+  try {
+    await sendOrderStatusEmail(result.order.customer_email, {
+      ...detailedOrder,
+      status: "delivery_refused",
+      explanation: "Customer refused the Cash on Delivery package during delivery."
+    });
+  } catch (error) {
+    console.error(`[VASTRA COD refusal email] ${error.message}`);
+  }
+  res.json({
+    order: detailedOrder,
+    codRefusalCount: result.activeCount,
+    message: "Order marked as customer-refused and COD refusal recorded."
+  });
 }
 
 export async function requestOrderReturn(req, res) {

@@ -1,5 +1,5 @@
 import React from "react";
-import { ArrowUpDown, Search, UserPlus } from "lucide-react";
+import { ArrowUpDown, ShieldAlert, Search, UserPlus } from "lucide-react";
 import { roleLabel } from "../utils/format.js";
 
 const sortOptions = [
@@ -10,7 +10,7 @@ const sortOptions = [
   ["role", "Role"]
 ];
 
-export function AdminUsersTable({ title = "Users and vendors", users, onPromote, meta, page, setPage, search, setSearch, sort, setSort }) {
+export function AdminUsersTable({ title = "Users and vendors", users, onPromote, onReviewCod, meta, page, setPage, search, setSearch, sort, setSort }) {
 
   return (
     <div className="panel min-w-0 space-y-4 overflow-hidden">
@@ -46,9 +46,13 @@ export function AdminUsersTable({ title = "Users and vendors", users, onPromote,
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2"><h3 className="font-bold">{user.name}</h3><span className="badge bg-neutral-100 dark:bg-neutral-800">{roleLabel(user.role)}</span></div>
                 <p className="mt-1 break-all text-sm text-neutral-500">{user.email}</p>
+                {user.codPolicy && <p className="mt-2 text-xs font-semibold text-neutral-500">COD refusals: {user.codPolicy.activeRefusalCount} of {user.codPolicy.refusalLimit} - {user.codPolicy.statusLabel}</p>}
                 <p className="mt-2 text-xs text-neutral-500">Joined {new Date(user.createdAt || user.created_at).toLocaleDateString()}</p>
               </div>
-              {user.role === "user" ? <button className="btn-secondary h-9 shrink-0 px-3" onClick={() => onPromote(user.id)} type="button"><UserPlus size={16} /> Promote</button> : <span className="text-xs text-neutral-500">Approved seller</span>}
+              <div className="flex flex-wrap gap-2">
+                {onReviewCod && <button className="btn-secondary h-9 shrink-0 px-3" onClick={() => onReviewCod(user)} type="button"><ShieldAlert size={16} /> COD</button>}
+                {user.role === "user" ? <button className="btn-secondary h-9 shrink-0 px-3" onClick={() => onPromote(user.id)} type="button"><UserPlus size={16} /> Promote</button> : <span className="text-xs text-neutral-500">Approved seller</span>}
+              </div>
             </div>
           </article>
         ))}

@@ -1,14 +1,14 @@
 import { AppError } from "./errors.js";
 
 export const ORDER_STATUS_SEQUENCE = ["pending", "processing", "shipped", "delivered"];
-export const FINAL_ORDER_STATUSES = ["delivered", "cancelled"];
+export const FINAL_ORDER_STATUSES = ["delivered", "cancelled", "delivery_refused"];
 export const USER_CANCELLABLE_STATUSES = ["pending", "processing"];
 export const VENDOR_CANCELLABLE_STATUSES = ["pending", "processing"];
 
 const allowedTransitions = ORDER_STATUS_SEQUENCE.reduce((transitions, status, index) => {
   transitions[status] = ORDER_STATUS_SEQUENCE[index + 1] ? [ORDER_STATUS_SEQUENCE[index + 1]] : [];
   return transitions;
-}, { cancelled: [] });
+}, { cancelled: [], delivery_refused: [] });
 
 export function normalizeOrderStatus(status) {
   return String(status || "").trim().toLowerCase();

@@ -18,11 +18,19 @@ const statusActionLabels = {
 };
 
 const cancellableStatuses = ["pending", "processing"];
+const codRefusalReasons = [
+  "Customer refused to accept the package",
+  "Customer refused to pay",
+  "Customer was repeatedly unavailable and later refused",
+  "Customer said they no longer wanted the order after shipment",
+  "Other"
+];
 
-export function VendorOrderTable({ orders, onStatusChange, onCancel, actingOrderId = "" }) {
+export function VendorOrderTable({ orders, onStatusChange, onCancel, onReportRefusal, actingOrderId = "" }) {
   const [selected, setSelected] = useState(null);
   const [statusChange, setStatusChange] = useState(null);
   const [cancelOrder, setCancelOrder] = useState(null);
+  const [refusalOrder, setRefusalOrder] = useState(null);
   if (!orders.length) return <div className="panel py-10 text-center text-neutral-500">No delivery orders for your products yet.</div>;
 
   function nextStatusFor(order) {
@@ -37,6 +45,10 @@ export function VendorOrderTable({ orders, onStatusChange, onCancel, actingOrder
 
   function canCancel(order) {
     return cancellableStatuses.includes(order.status) && (!order.returnStatus || order.returnStatus === "none");
+  }
+
+  function canReportRefusal(order) {
+    return order.paymentMethod === "cod" && order.status === "shipped" && !order.codRefusal && (!order.returnStatus || order.returnStatus === "none");
   }
 
   return <>
@@ -68,6 +80,7 @@ export function VendorOrderTable({ orders, onStatusChange, onCancel, actingOrder
             onCancel={() => setCancelOrder(order)}
             onDetails={() => setSelected(order)}
             onNext={() => requestNextStatus(order)}
+            onReportRefusal={canReportRefusal(order) ? () => setRefusalOrder(order) : null}
             order={order}
           />
         </article>;
@@ -84,6 +97,7 @@ export function VendorOrderTable({ orders, onStatusChange, onCancel, actingOrder
         nextStatus={nextStatusFor(selected)}
         onCancel={() => setCancelOrder(selected)}
         onNext={() => requestNextStatus(selected)}
+        onReportRefusal={canReportRefusal(selected) ? () => setRefusalOrder(selected) : null}
         order={selected}
       />}
     >
@@ -122,10 +136,11 @@ export function VendorOrderTable({ orders, onStatusChange, onCancel, actingOrder
     </DashboardDetailModal>
     <StatusConfirmModal change={statusChange} onCancel={() => setStatusChange(null)} onConfirm={async ({ orderId, to }) => { await onStatusChange(orderId, to); setSelected(null); }} />
     <CancelOrderModal order={cancelOrder} saving={actingOrderId === cancelOrder?.id} onClose={() => setCancelOrder(null)} onConfirm={async (order) => { await onCancel(order.id); setSelected(null); setCancelOrder(null); }} />
+    <CodRefusalModal order={refusalOrder} saving={actingOrderId === refusalOrder?.id} onClose={() => setRefusalOrder(null)} onConfirm={async (payload) => { await onReportRefusal(refusalOrder.id, payload); setSelected(null); setRefusalOrder(null); }} />
   </>;
 }
 
-function DeliveryActions({ order, nextStatus, canCancel, disabled, onDetails, onNext, onCancel }) {
+function DeliveryActions({ order, nextStatus, canCancel, disabled, onDetails, onNext, onCancel, onReportRefusal }) {
   return <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
     {onDetails && <button className="btn-secondary flex-1" onClick={onDetails} type="button"><Eye size={16} /> View details</button>}
     <div className="min-w-44 flex-1 rounded-lg border border-neutral-200 p-3 text-sm dark:border-neutral-800">
@@ -133,7 +148,34 @@ function DeliveryActions({ order, nextStatus, canCancel, disabled, onDetails, on
       <p className="mt-1"><span className="text-neutral-500">Next step:</span> {nextStatus ? <strong className="capitalize">{nextStatus}</strong> : "No further delivery updates"}</p>
     </div>
     {nextStatus && <button className="btn-primary" disabled={disabled} onClick={onNext} type="button">{disabled ? "Updating..." : statusActionLabels[nextStatus]}</button>}
+    {onReportRefusal && <button className="btn-secondary text-red-600" disabled={disabled} onClick={onReportRefusal} type="button">Mark as Customer Refused Delivery</button>}
     {canCancel && <button className="btn-secondary text-red-600" disabled={disabled} onClick={onCancel} type="button">Cancel Order</button>}
+  </div>;
+}
+
+function CodRefusalModal({ order, saving, onClose, onConfirm }) {
+  const [reason, setReason] = useState(codRefusalReasons[0]);
+  const [additionalDetails, setAdditionalDetails] = useState("");
+  if (!order) return null;
+  const needsDetails = reason === "Other";
+  const disabled = saving || (needsDetails && additionalDetails.trim().length < 5);
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4 backdrop-blur-sm" onPointerDown={(event) => event.target === event.currentTarget && !saving && onClose()}>
+    <div aria-labelledby="cod-refusal-title" aria-modal="true" className="panel w-full max-w-lg space-y-5 shadow-2xl" role="dialog" onPointerDown={(event) => event.stopPropagation()}>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-200"><AlertTriangle size={22} /></span>
+          <div><p className="text-sm font-bold uppercase tracking-wide text-clay">COD refusal</p><h2 className="mt-1 text-2xl font-black" id="cod-refusal-title">Customer refused delivery?</h2></div>
+        </div>
+        <button aria-label="Close" className="btn-secondary h-9 w-9 px-0" disabled={saving} onClick={onClose} type="button"><X size={16} /></button>
+      </div>
+      <p className="leading-7 text-neutral-600 dark:text-neutral-300">This will mark order <span className="font-mono font-bold text-ink dark:text-neutral-100">#{order.id.slice(0, 8)}</span> as delivery refused and add one COD refusal record to the customer account.</p>
+      <label className="block text-sm font-semibold">Reason<select className="mt-1 w-full" disabled={saving} value={reason} onChange={(event) => setReason(event.target.value)}>{codRefusalReasons.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+      <label className="block text-sm font-semibold">Additional details<textarea className="mt-1 w-full" disabled={saving} maxLength="500" rows="4" value={additionalDetails} onChange={(event) => setAdditionalDetails(event.target.value)} placeholder="Optional context for admin review" /></label>
+      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+        <button className="btn-secondary" disabled={saving} onClick={onClose} type="button">Cancel</button>
+        <button className="btn-primary bg-red-600 hover:bg-red-700 dark:bg-red-600 dark:text-white dark:hover:bg-red-700" disabled={disabled} onClick={() => onConfirm({ reason, additionalDetails })} type="button">{saving ? "Recording..." : "Record Refusal"}</button>
+      </div>
+    </div>
   </div>;
 }
 

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { BarChart3, ClipboardList, Grid2X2, Mail, MessageSquare, PackageCheck, Percent, Shirt, Star, Store, Trash2, UserRound } from "lucide-react";
+import { BarChart3, ClipboardList, Grid2X2, Mail, MessageSquare, PackageCheck, Percent, Shirt, Star, Store, Trash2, UserRound, X } from "lucide-react";
 import { Link, NavLink, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, getErrorMessage } from "../api/client.js";
 import { AdminCouponManager } from "../components/AdminCouponManager.jsx";
@@ -53,6 +53,45 @@ function EntityReviewList({ type, reviews, meta, loading, page, setPage, onDelet
   return <div>{reviews.map((review) => <article className="border-b border-neutral-200 py-4 first:pt-0 last:border-0 dark:border-neutral-800" key={review.id}><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold">{review.userName} · {review.rating}/5</p><p className="text-sm text-neutral-500">{type === "product" ? "Product" : "Vendor"}: {review.entityName} · {new Date(review.createdAt).toLocaleDateString()}</p></div><button className="btn-secondary h-9 px-3 text-red-600" onClick={() => onDelete(review)} type="button"><Trash2 size={14} /> Delete</button></div><p className="mt-3 whitespace-pre-wrap text-sm leading-6">{review.body}</p></article>)}{!reviews.length && <p className="py-8 text-center text-sm text-neutral-500">No {type} reviews yet.</p>}<Pager meta={meta} page={page} setPage={setPage} noun="reviews" /></div>;
 }
 
+function CodRefusalReviewModal({ review, revocationReason, setRevocationReason, saving, onClose, onRevoke }) {
+  if (!review) return null;
+  return <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/45 px-4 py-8 backdrop-blur-sm">
+    <div className="panel w-full max-w-3xl space-y-5 shadow-2xl">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm font-bold uppercase tracking-wide text-clay">Admin review</p>
+          <h2 className="mt-1 text-2xl font-black">COD refusal records</h2>
+          <p className="mt-1 text-sm text-neutral-500">{review.user?.name} - {review.user?.email}</p>
+        </div>
+        <button className="btn-secondary h-9 w-9 px-0" disabled={saving} onClick={onClose} title="Close" type="button"><X size={16} /></button>
+      </div>
+      <div className="rounded-lg border border-neutral-200 p-3 text-sm dark:border-neutral-800">
+        <p className="font-bold">Current COD status: {review.user?.codPolicy?.statusLabel || "Available"}</p>
+        <p className="mt-1 text-neutral-500">Active refusals: {review.user?.codPolicy?.activeRefusalCount || 0} of {review.user?.codPolicy?.refusalLimit || 3}</p>
+      </div>
+      <div className="max-h-[52vh] space-y-3 overflow-y-auto pr-1">
+        {review.records.map((record) => <article className="rounded-lg border border-neutral-200 p-4 text-sm dark:border-neutral-800" key={record.id}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="font-mono text-xs text-neutral-500">ORDER #{record.orderId.slice(0, 8)}</p>
+              <h3 className="mt-1 font-black">{record.reason}</h3>
+              <p className="mt-1 text-neutral-500">Reported by {record.reportedByVendorName} on {new Date(record.createdAt).toLocaleString()}</p>
+            </div>
+            <span className={`badge ${record.active ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200" : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-200"}`}>{record.active ? "Active" : "Revoked"}</span>
+          </div>
+          {record.additionalDetails && <p className="mt-3 rounded-lg bg-neutral-50 p-3 dark:bg-neutral-950">{record.additionalDetails}</p>}
+          {!record.active && <p className="mt-3 text-neutral-500">Revoked by {record.revokedByAdminName || "admin"}: {record.revocationReason}</p>}
+          {record.active && <div className="mt-4 space-y-2">
+            <label className="block text-sm font-semibold">Admin revocation reason<textarea className="mt-1 w-full" maxLength="800" rows="3" value={revocationReason} onChange={(event) => setRevocationReason(event.target.value)} placeholder="Why is this refusal record incorrect?" /></label>
+            <button className="btn-secondary text-red-600" disabled={saving || revocationReason.trim().length < 5} onClick={() => onRevoke(record)} type="button">{saving ? "Revoking..." : "Revoke Record"}</button>
+          </div>}
+        </article>)}
+        {!review.records.length && <p className="rounded-lg border border-dashed border-neutral-300 p-4 text-sm text-neutral-500 dark:border-neutral-700">No COD refusal records for this account.</p>}
+      </div>
+    </div>
+  </div>;
+}
+
 export function AdminDashboard() {
   const { section = "stat-viewer" } = useParams();
   const valid = sections.some(([key]) => key === section);
@@ -72,6 +111,9 @@ export function AdminDashboard() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [dashboardUpdates, setDashboardUpdates] = useState({});
+  const [codReview, setCodReview] = useState(null);
+  const [codReviewSaving, setCodReviewSaving] = useState(false);
+  const [codRevocationReason, setCodRevocationReason] = useState("");
 
   const loadDashboardUpdates = useCallback(async () => {
     const response = await api.get("/admin/dashboard-updates");
@@ -124,6 +166,33 @@ export function AdminDashboard() {
 
   async function decideProduct(id, status, reason) { await api.patch(`/admin/products/${id}/${status}`, status === "reject" ? { reason } : {}); await loadSection(); }
   async function promoteUser(id) { try { await api.patch(`/admin/users/${id}/role`, { role: "vendor" }); setNotice("User promoted to vendor."); await loadSection(); } catch (err) { setError(getErrorMessage(err)); } }
+  async function reviewCodRefusals(user) {
+    setCodRevocationReason("");
+    setCodReview({ user, records: [] });
+    try {
+      const { data: response } = await api.get(`/admin/users/${user.id}/cod-refusals`);
+      setCodReview(response);
+    } catch (err) {
+      setError(getErrorMessage(err));
+      setCodReview(null);
+    }
+  }
+  async function revokeCodRefusal(record) {
+    if (!codReview?.user) return;
+    setCodReviewSaving(true);
+    try {
+      await api.patch(`/admin/users/${codReview.user.id}/cod-refusals/${record.id}/revoke`, { revocationReason: codRevocationReason });
+      const { data: response } = await api.get(`/admin/users/${codReview.user.id}/cod-refusals`);
+      setCodReview(response);
+      setCodRevocationReason("");
+      setNotice("COD refusal record revoked.");
+      await loadSection();
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setCodReviewSaving(false);
+    }
+  }
   async function toggleReviewPin(review) { await api.patch(`/admin/reviews/${review.id}/pin`, { pinned: !review.pinned }); await loadSection(); }
   async function deleteEntityReview(review) { await api.delete(`/admin/entity-reviews/${review.entityType}/${review.id}`); await loadSection(); }
   async function openContactChat(id) { try { const { data: response } = await api.post(`/admin/contact-messages/${id}/conversation`); navigate(`/messages?conversationId=${response.conversation.id}`); } catch (err) { setError(getErrorMessage(err)); } }
@@ -133,6 +202,7 @@ export function AdminDashboard() {
   return <section className="mx-auto max-w-7xl px-4 py-10">
     <div className="mb-7 flex flex-wrap items-end justify-between gap-4"><div><p className="text-sm font-bold uppercase tracking-wide text-clay">Admin</p><h1 className="text-4xl font-black">Admin Dashboard</h1></div><Link className="btn-primary" to="/admin/wardrobe"><Shirt size={17} /> Wardrobe dashboard</Link></div>
     {(notice || error) && <p className={`mb-5 rounded-md p-3 text-sm ${error ? "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-200" : "bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-200"}`}>{error || notice}</p>}
+    <CodRefusalReviewModal review={codReview} revocationReason={codRevocationReason} setRevocationReason={setCodRevocationReason} saving={codReviewSaving} onClose={() => setCodReview(null)} onRevoke={revokeCodRefusal} />
     <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
       <aside><nav aria-label="Admin dashboard sections" className="flex gap-2 overflow-x-auto rounded-xl border border-neutral-200 bg-white p-2 dark:border-neutral-800 dark:bg-neutral-900 lg:sticky lg:top-24 lg:flex-col">{sections.map(([key, label, Icon]) => <NavLink className={({ isActive }) => `relative flex shrink-0 items-center gap-3 rounded-lg px-3 py-2.5 pr-8 text-sm font-bold transition ${isActive ? "bg-clay text-white" : "hover:bg-neutral-100 dark:hover:bg-neutral-800"}`} key={key} to={`/admin/dashboard/${key}`}><Icon size={17} />{label}{dashboardUpdates[key] > 0 && <span className="absolute right-3 h-2.5 w-2.5 rounded-full bg-red-500" aria-label={`${dashboardUpdates[key]} unseen updates`} />}</NavLink>)}</nav></aside>
       <main className="min-w-0"><div className="mb-5"><p className="text-sm font-bold uppercase tracking-wide text-clay">Dashboard section</p><h2 className="text-3xl font-black">{title}</h2></div>
@@ -142,7 +212,7 @@ export function AdminDashboard() {
           {section === "homepage-categories" && <AdminHomepageCategories />}
           {section === "newsletter-broadcast" && <AdminNewsletterBroadcast />}
           {section === "product-approvals" && <AdminProductApprovalTable products={data.products} onApprove={(id) => decideProduct(id, "approve")} onReject={(id, reason) => decideProduct(id, "reject", reason)} />}
-          {section === "users-vendors" && <div className="grid gap-6 xl:grid-cols-2"><AdminUsersTable title="Users" users={data.users} onPromote={promoteUser} meta={meta} page={page} setPage={setPage} search={search} setSearch={(value) => { setSearch(value); setPage(1); }} sort={sort} setSort={(value) => { setSort(value); setPage(1); }} /><AdminUsersTable title="Vendors" users={data.vendors} onPromote={promoteUser} meta={vendorMeta} page={vendorPage} setPage={setVendorPage} search={vendorSearch} setSearch={(value) => { setVendorSearch(value); setVendorPage(1); }} sort={vendorSort} setSort={(value) => { setVendorSort(value); setVendorPage(1); }} /></div>}
+          {section === "users-vendors" && <div className="grid gap-6 xl:grid-cols-2"><AdminUsersTable title="Users" users={data.users} onPromote={promoteUser} onReviewCod={reviewCodRefusals} meta={meta} page={page} setPage={setPage} search={search} setSearch={(value) => { setSearch(value); setPage(1); }} sort={sort} setSort={(value) => { setSort(value); setPage(1); }} /><AdminUsersTable title="Vendors" users={data.vendors} onPromote={promoteUser} onReviewCod={reviewCodRefusals} meta={vendorMeta} page={vendorPage} setPage={setVendorPage} search={vendorSearch} setSearch={(value) => { setVendorSearch(value); setVendorPage(1); }} sort={vendorSort} setSort={(value) => { setVendorSort(value); setVendorPage(1); }} /></div>}
           {section === "order-history" && <div><AdminOrderHistory orders={data.orders.slice((page - 1) * 10, page * 10)} focusedOrderId={searchParams.get("orderId") || ""} /><Pager meta={{ page, totalPages: Math.max(1, Math.ceil(data.orders.length / 10)), total: data.orders.length }} page={page} setPage={setPage} noun="orders" /></div>}
           {section === "contact-messages" && <div className="panel">{data.messages.map((item) => <div className="border-b border-neutral-200 py-4 first:pt-0 last:border-0 dark:border-neutral-800" key={item.id}><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold">{item.subject}</p><p className="text-sm text-neutral-500">{item.name} · {item.email}</p></div><button className="btn-secondary h-9 px-3" onClick={() => openContactChat(item.id)} type="button"><MessageSquare size={16} /> Chat</button></div><p className="mt-2 text-sm">{item.message}</p></div>)}{!data.messages.length && <p className="text-sm text-neutral-500">No contact messages.</p>}<Pager meta={meta} page={page} setPage={setPage} noun="messages" /></div>}
           {section === "user-reviews" && <div className="panel"><div className="max-h-[620px] space-y-3 overflow-auto">{data.reviews.map((review) => <div className="border-b border-neutral-200 pb-3 last:border-0 dark:border-neutral-800" key={review.id}><div className="flex items-start justify-between gap-3"><div><p className="font-semibold">{review.user.name}</p><p className="text-sm text-neutral-500">{new Date(review.createdAt).toLocaleDateString()}</p></div><button className={review.pinned ? "btn-primary h-9 px-3" : "btn-secondary h-9 px-3"} onClick={() => toggleReviewPin(review)} type="button">{review.pinned ? "Unpin" : "Pin"}</button></div><p className="mt-2 text-sm">{review.body}</p></div>)}{!data.reviews.length && <p className="text-sm text-neutral-500">No reviews yet.</p>}</div></div>}

@@ -6,6 +6,7 @@ import { AppError } from "../utils/errors.js";
 import { saveProfileImage } from "../utils/imageUpload.js";
 import { sendLoginOtpEmail, sendPasswordResetEmail, sendVerificationEmail } from "../utils/mailer.js";
 import { serializeUser } from "../utils/serializers.js";
+import { getCodPolicyForUser } from "../utils/codPolicy.js";
 
 function signToken(user) {
   return jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "7d" });
@@ -462,7 +463,7 @@ export async function resetPassword(req, res) {
 }
 
 export async function me(req, res) {
-  res.json({ user: req.user });
+  res.json({ user: { ...req.user, codPolicy: await getCodPolicyForUser(query, req.user.id) } });
 }
 
 export async function updateMe(req, res) {

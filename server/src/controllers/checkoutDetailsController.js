@@ -8,6 +8,7 @@ import {
   encryptCardNumber,
   toSavedCard
 } from "../utils/demoSavedCards.js";
+import { getCodPolicyForUser } from "../utils/codPolicy.js";
 
 const ADDRESS_FIELDS = [
   "id",
@@ -114,12 +115,13 @@ async function ensureDefault(client, table, userId, id) {
 }
 
 export async function listCheckoutDetails(req, res) {
-  const [addresses, payments, savedCards] = await Promise.all([
+  const [addresses, payments, savedCards, codPolicy] = await Promise.all([
     query(`SELECT ${ADDRESS_FIELDS.join(", ")} FROM saved_checkout_addresses WHERE user_id = $1 ORDER BY is_default DESC, created_at DESC`, [req.user.id]),
     query("SELECT * FROM saved_payment_preferences WHERE user_id = $1 ORDER BY is_default DESC, created_at DESC", [req.user.id]),
     demoSavedCardsEnabled()
       ? query("SELECT * FROM saved_payment_methods WHERE user_id = $1 ORDER BY is_default DESC, created_at DESC", [req.user.id])
-      : Promise.resolve({ rows: [] })
+      : Promise.resolve({ rows: [] }),
+    getCodPolicyForUser(query, req.user.id)
   ]);
 
   res.json({
@@ -129,6 +131,7 @@ export async function listCheckoutDetails(req, res) {
       email: req.user.email || "",
       phoneNumber: req.user.phoneNumber || ""
     },
+    codPolicy,
     addresses: addresses.rows.map(toAddress),
     paymentPreferences: payments.rows.map(toPayment),
     savedPaymentMethods: savedCards.rows.map(toSavedCard)
