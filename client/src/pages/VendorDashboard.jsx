@@ -31,7 +31,7 @@ export function VendorDashboard() {
   const [returns, setReturns] = useState([]);
   const [returnMeta, setReturnMeta] = useState(null);
   const [dashboardUpdates, setDashboardUpdates] = useState({});
-  const [income, setIncome] = useState({ totalIncome: 0, totalOrders: 0, totalItems: 0, inventory: {}, recentOrders: [] });
+  const [income, setIncome] = useState({ totalIncome: 0, totalOrders: 0, totalItems: 0, returnedOrders: 0, inventory: {}, recentOrders: [] });
   const [editing, setEditing] = useState(null);
   const [editingBundle, setEditingBundle] = useState(null);
   const [showForm, setShowForm] = useState(false);
@@ -319,8 +319,8 @@ export function VendorDashboard() {
             <p className="mt-1 text-3xl font-black">{income.totalOrders}</p>
           </div>
           <div className="panel">
-            <p className="text-sm text-neutral-500">Items sold</p>
-            <p className="mt-1 text-3xl font-black">{income.totalItems}</p>
+            <p className="text-sm text-neutral-500">Returned orders</p>
+            <p className="mt-1 text-3xl font-black">{income.returnedOrders ?? 0}</p>
           </div>
         </div>
         <div className="panel">

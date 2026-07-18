@@ -719,11 +719,22 @@ export async function getVendorIncomeSummary(req, res) {
     [req.user.id]
   );
 
+  const returns = await query(
+    `SELECT COUNT(DISTINCT orders.id)::int AS returned_orders
+     FROM orders
+     JOIN order_items ON order_items.order_id = orders.id
+     JOIN products ON products.id = order_items.product_id
+     WHERE products.vendor_id = $1
+       AND COALESCE(order_items.return_status, 'none') IN ('approved', 'completed')`,
+    [req.user.id]
+  );
+
   res.json({
     income: {
       totalIncome: Number(totals.rows[0].total_income),
       totalOrders: totals.rows[0].total_orders,
       totalItems: totals.rows[0].total_items,
+      returnedOrders: returns.rows[0].returned_orders,
       inventory: {
         lowStock: inventory.rows[0].low_stock,
         lowStockBundles: inventory.rows[0].low_stock_bundles,
