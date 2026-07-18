@@ -2,6 +2,7 @@ import { CreditCard, Edit3, Eye, EyeOff, MapPin, Plus, ShieldCheck, Star, Trash2
 import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, getErrorMessage } from "../api/client.js";
+import { DeliveryAddressForm, addressSummary, deliveryAddressFromSaved, emptyDeliveryAddress, validateDeliveryAddress } from "../components/DeliveryAddressForm.jsx";
 import { UserAvatar } from "../components/UserAvatar.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useNotification } from "../context/NotificationContext.jsx";
@@ -97,20 +98,6 @@ function NewsletterPreference() {
   );
 }
 
-const emptyAddress = {
-  label: "Home",
-  fullName: "",
-  phoneNumber: "",
-  country: "Nepal",
-  province: "",
-  city: "",
-  area: "",
-  detailedAddress: "",
-  postalCode: "",
-  deliveryInstructions: "",
-  isDefault: false
-};
-
 const emptySavedCard = {
   nickname: "",
   cardholderName: "",
@@ -182,10 +169,6 @@ function FieldError({ children }) {
   return children ? <span className="mt-1 block text-xs font-semibold text-red-600 dark:text-red-300">{children}</span> : null;
 }
 
-function addressSummary(address) {
-  return [address.detailedAddress, address.area, address.city, address.province, address.postalCode, address.country].filter(Boolean).join(", ");
-}
-
 function CodReliabilityCard({ codPolicy }) {
   if (!codPolicy) return null;
   const restricted = !codPolicy.codAvailable;
@@ -211,7 +194,7 @@ function SavedCheckoutDetails() {
   const [saving, setSaving] = useState(false);
   const [details, setDetails] = useState({ contact: null, addresses: [], paymentPreferences: [], savedPaymentMethods: [], demoSavedCardsEnabled: false, codPolicy: null });
   const [contact, setContact] = useState({ fullName: user?.name || "", phoneNumber: user?.phoneNumber || "" });
-  const [addressForm, setAddressForm] = useState(emptyAddress);
+  const [addressForm, setAddressForm] = useState(emptyDeliveryAddress);
   const [editingAddressId, setEditingAddressId] = useState("");
   const [addressModalOpen, setAddressModalOpen] = useState(false);
   const [addressErrors, setAddressErrors] = useState({});
@@ -246,7 +229,7 @@ function SavedCheckoutDetails() {
 
   function beginAddAddress() {
     setEditingAddressId("");
-    setAddressForm(emptyAddress);
+    setAddressForm(emptyDeliveryAddress);
     setAddressErrors({});
     setAddressModalOpen(true);
   }
@@ -279,30 +262,13 @@ function SavedCheckoutDetails() {
 
   function editAddress(address) {
     setEditingAddressId(address.id);
-    setAddressForm({
-      label: address.label || "Home",
-      fullName: address.fullName || "",
-      phoneNumber: address.phoneNumber || "",
-      country: address.country || "Nepal",
-      province: address.province || "",
-      city: address.city || "",
-      area: address.area || "",
-      detailedAddress: address.detailedAddress || "",
-      postalCode: address.postalCode || "",
-      deliveryInstructions: address.deliveryInstructions || "",
-      isDefault: Boolean(address.isDefault)
-    });
+    setAddressForm(deliveryAddressFromSaved(address));
     setAddressErrors({});
     setAddressModalOpen(true);
   }
 
   function validateAddressForm() {
-    const errors = {};
-    if (addressForm.fullName.trim().length < 2) errors.fullName = "Recipient name is required.";
-    if (!/^\+?[0-9 ()-]{7,20}$/.test(addressForm.phoneNumber.trim())) errors.phoneNumber = "Enter a valid phone number.";
-    if (addressForm.country.trim().length < 2) errors.country = "Country is required.";
-    if (!addressForm.city.trim()) errors.city = "City is required.";
-    if (addressForm.detailedAddress.trim().length < 5) errors.detailedAddress = "Street/address is required.";
+    const errors = validateDeliveryAddress(addressForm);
     setAddressErrors(errors);
     return Object.keys(errors).length === 0;
   }
@@ -320,7 +286,7 @@ function SavedCheckoutDetails() {
       } else {
         await api.post("/checkout-details/addresses", addressForm);
       }
-      setAddressForm(emptyAddress);
+      setAddressForm(emptyDeliveryAddress);
       setEditingAddressId("");
       setAddressModalOpen(false);
       setAddressErrors({});
@@ -544,21 +510,9 @@ function SavedCheckoutDetails() {
   return (
     <section className="space-y-5" id="saved-checkout-details">
       <ConfirmDialog confirm={confirm} onCancel={() => setConfirm(null)} onConfirm={() => confirm?.onConfirm?.()} />
-      {addressModalOpen && <FormModal title={editingAddressId ? "Edit delivery address" : "Add delivery address"} subtitle="Saved defaults continue to autofill checkout." onClose={() => { setAddressModalOpen(false); setEditingAddressId(""); setAddressForm(emptyAddress); setAddressErrors({}); }}>
+      {addressModalOpen && <FormModal title={editingAddressId ? "Edit delivery address" : "Add delivery address"} subtitle="Saved defaults continue to autofill checkout." onClose={() => { setAddressModalOpen(false); setEditingAddressId(""); setAddressForm(emptyDeliveryAddress); setAddressErrors({}); }}>
         <form className="space-y-4" onSubmit={saveAddress}>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="text-sm font-semibold">Label<select className="mt-1 w-full" value={addressForm.label} onChange={(event) => setAddressForm({ ...addressForm, label: event.target.value })}><option>Home</option><option>Work</option><option>Other</option></select></label>
-            <label className="text-sm font-semibold">Recipient name<input className="mt-1 w-full" value={addressForm.fullName} onChange={(event) => setAddressForm({ ...addressForm, fullName: event.target.value })} /><FieldError>{firstError(addressErrors, "fullName")}</FieldError></label>
-            <label className="text-sm font-semibold">Phone<input className="mt-1 w-full" value={addressForm.phoneNumber} onChange={(event) => setAddressForm({ ...addressForm, phoneNumber: event.target.value })} /><FieldError>{firstError(addressErrors, "phoneNumber")}</FieldError></label>
-            <label className="text-sm font-semibold">City<input className="mt-1 w-full" value={addressForm.city} onChange={(event) => setAddressForm({ ...addressForm, city: event.target.value })} /><FieldError>{firstError(addressErrors, "city")}</FieldError></label>
-            <label className="text-sm font-semibold">Province/state<input className="mt-1 w-full" value={addressForm.province} onChange={(event) => setAddressForm({ ...addressForm, province: event.target.value })} /></label>
-            <label className="text-sm font-semibold">Country<input className="mt-1 w-full" value={addressForm.country} onChange={(event) => setAddressForm({ ...addressForm, country: event.target.value })} /><FieldError>{firstError(addressErrors, "country")}</FieldError></label>
-            <label className="text-sm font-semibold">Area/street<input className="mt-1 w-full" value={addressForm.area} onChange={(event) => setAddressForm({ ...addressForm, area: event.target.value })} /></label>
-            <label className="text-sm font-semibold">Postal/ZIP<input className="mt-1 w-full" value={addressForm.postalCode} onChange={(event) => setAddressForm({ ...addressForm, postalCode: event.target.value })} /><FieldError>{firstError(addressErrors, "postalCode")}</FieldError></label>
-          </div>
-          <label className="block text-sm font-semibold">Street/address<textarea className="mt-1 w-full" rows="3" value={addressForm.detailedAddress} onChange={(event) => setAddressForm({ ...addressForm, detailedAddress: event.target.value })} /><FieldError>{firstError(addressErrors, "detailedAddress")}</FieldError></label>
-          <label className="block text-sm font-semibold">Delivery instructions<textarea className="mt-1 w-full" rows="2" value={addressForm.deliveryInstructions} onChange={(event) => setAddressForm({ ...addressForm, deliveryInstructions: event.target.value })} /></label>
-          <label className="flex items-center gap-2 text-sm"><input checked={addressForm.isDefault} onChange={(event) => setAddressForm({ ...addressForm, isDefault: event.target.checked })} type="checkbox" /> Set as default</label>
+          <DeliveryAddressForm value={addressForm} onChange={setAddressForm} errors={addressErrors} />
           <div className="flex flex-wrap justify-end gap-2"><button className="btn-secondary" onClick={() => setAddressModalOpen(false)} type="button">Cancel</button><button className="btn-primary" disabled={saving} type="submit">{editingAddressId ? "Save address" : "Add address"}</button></div>
         </form>
       </FormModal>}
