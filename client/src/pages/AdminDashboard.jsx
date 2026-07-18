@@ -16,7 +16,8 @@ const sections = [
   ["homepage-categories", "Homepage Categories", Grid2X2],
   ["newsletter-broadcast", "Newsletter Broadcast", Mail],
   ["product-approvals", "Product Approvals", PackageCheck],
-  ["users-vendors", "Users and Vendors", UserRound],
+  ["users", "Users", UserRound],
+  ["vendors", "Vendors", Store],
   ["order-history", "Order History", ClipboardList],
   ["contact-messages", "Contact Messages", MessageSquare],
   ["user-reviews", "User Reviews", Star],
@@ -31,7 +32,8 @@ const dashboardScopeSections = {
   newsletter: "newsletter-broadcast",
   "newsletter-broadcast": "newsletter-broadcast",
   products: "product-approvals",
-  users: "users-vendors",
+  users: "users",
+  vendors: "vendors",
   orders: "order-history",
   "contact-messages": "contact-messages",
   "user-reviews": "user-reviews",
@@ -103,6 +105,7 @@ export function AdminDashboard() {
   const [page, setPage] = useState(1);
   const [vendorPage, setVendorPage] = useState(1);
   const [vendorMeta, setVendorMeta] = useState(null);
+  const [orderPage, setOrderPage] = useState(1);
   const [search, setSearch] = useState("");
   const [vendorSearch, setVendorSearch] = useState("");
   const [sort, setSort] = useState("newest");
@@ -131,13 +134,15 @@ export function AdminDashboard() {
     try {
       if (section === "stat-viewer") { const response = await api.get("/admin/stats"); setData((current) => ({ ...current, stats: response.data.stats })); }
       if (section === "product-approvals") { const response = await api.get("/admin/products"); setData((current) => ({ ...current, products: response.data.products })); }
-      if (section === "users-vendors") {
-        const [users, vendors] = await Promise.all([
-          api.get(`/admin/users?role=user&page=${page}&limit=6&search=${encodeURIComponent(search)}&sort=${sort}`),
-          api.get(`/admin/users?role=vendor&page=${vendorPage}&limit=6&search=${encodeURIComponent(vendorSearch)}&sort=${vendorSort}`)
-        ]);
-        setData((current) => ({ ...current, users: users.data.users, vendors: vendors.data.users }));
-        setMeta(users.data.meta); setVendorMeta(vendors.data.meta);
+      if (section === "users") {
+        const response = await api.get(`/admin/users?role=user&page=${page}&limit=10&search=${encodeURIComponent(search)}&sort=${sort}`);
+        setData((current) => ({ ...current, users: response.data.users }));
+        setMeta(response.data.meta);
+      }
+      if (section === "vendors") {
+        const response = await api.get(`/admin/users?role=vendor&page=${vendorPage}&limit=10&search=${encodeURIComponent(vendorSearch)}&sort=${vendorSort}`);
+        setData((current) => ({ ...current, vendors: response.data.users }));
+        setVendorMeta(response.data.meta);
       }
       if (section === "order-history") { const response = await api.get("/admin/orders"); setData((current) => ({ ...current, orders: response.data.orders || [] })); }
       if (section === "contact-messages") { const response = await api.get(`/admin/contact-messages?page=${page}&limit=5`); setData((current) => ({ ...current, messages: response.data.messages })); setMeta(response.data.meta); }
@@ -146,8 +151,8 @@ export function AdminDashboard() {
     } catch (err) { setError(getErrorMessage(err)); } finally { setLoading(false); }
   }, [page, search, section, sort, valid, vendorPage, vendorSearch, vendorSort]);
 
-  useEffect(() => { setPage(1); setMeta(null); setError(""); markSectionSeen(section).catch(() => {}); }, [markSectionSeen, section]);
-  useEffect(() => { if (section !== "order-history") return; const orderId = searchParams.get("orderId"); const index = data.orders.findIndex((order) => order.id === orderId); if (index >= 0) setPage(Math.floor(index / 10) + 1); }, [data.orders, searchParams, section]);
+  useEffect(() => { setPage(1); setVendorPage(1); setOrderPage(1); setMeta(null); setVendorMeta(null); setError(""); markSectionSeen(section).catch(() => {}); }, [markSectionSeen, section]);
+  useEffect(() => { if (section !== "order-history") return; const orderId = searchParams.get("orderId"); const index = data.orders.findIndex((order) => order.id === orderId); if (index >= 0) setOrderPage(Math.floor(index / 10) + 1); }, [data.orders, searchParams, section]);
   useEffect(() => { loadSection(); loadDashboardUpdates().catch(() => {}); }, [loadSection, loadDashboardUpdates]);
   useEffect(() => {
     if (!socket) return undefined;
@@ -212,8 +217,9 @@ export function AdminDashboard() {
           {section === "homepage-categories" && <AdminHomepageCategories />}
           {section === "newsletter-broadcast" && <AdminNewsletterBroadcast />}
           {section === "product-approvals" && <AdminProductApprovalTable products={data.products} onApprove={(id) => decideProduct(id, "approve")} onReject={(id, reason) => decideProduct(id, "reject", reason)} />}
-          {section === "users-vendors" && <div className="grid gap-6 xl:grid-cols-2"><AdminUsersTable title="Users" users={data.users} onPromote={promoteUser} onReviewCod={reviewCodRefusals} meta={meta} page={page} setPage={setPage} search={search} setSearch={(value) => { setSearch(value); setPage(1); }} sort={sort} setSort={(value) => { setSort(value); setPage(1); }} /><AdminUsersTable title="Vendors" users={data.vendors} onPromote={promoteUser} onReviewCod={reviewCodRefusals} meta={vendorMeta} page={vendorPage} setPage={setVendorPage} search={vendorSearch} setSearch={(value) => { setVendorSearch(value); setVendorPage(1); }} sort={vendorSort} setSort={(value) => { setVendorSort(value); setVendorPage(1); }} /></div>}
-          {section === "order-history" && <div><AdminOrderHistory orders={data.orders.slice((page - 1) * 10, page * 10)} focusedOrderId={searchParams.get("orderId") || ""} /><Pager meta={{ page, totalPages: Math.max(1, Math.ceil(data.orders.length / 10)), total: data.orders.length }} page={page} setPage={setPage} noun="orders" /></div>}
+          {section === "users" && <AdminUsersTable title="Users" users={data.users} onPromote={promoteUser} onReviewCod={reviewCodRefusals} meta={meta} page={page} setPage={setPage} search={search} setSearch={(value) => { setSearch(value); setPage(1); }} sort={sort} setSort={(value) => { setSort(value); setPage(1); }} />}
+          {section === "vendors" && <AdminUsersTable title="Vendors" users={data.vendors} onPromote={promoteUser} onReviewCod={reviewCodRefusals} meta={vendorMeta} page={vendorPage} setPage={setVendorPage} search={vendorSearch} setSearch={(value) => { setVendorSearch(value); setVendorPage(1); }} sort={vendorSort} setSort={(value) => { setVendorSort(value); setVendorPage(1); }} />}
+          {section === "order-history" && <div><AdminOrderHistory orders={data.orders.slice((orderPage - 1) * 10, orderPage * 10)} focusedOrderId={searchParams.get("orderId") || ""} /><Pager meta={{ page: orderPage, totalPages: Math.max(1, Math.ceil(data.orders.length / 10)), total: data.orders.length }} page={orderPage} setPage={setOrderPage} noun="orders" /></div>}
           {section === "contact-messages" && <div className="panel">{data.messages.map((item) => <div className="border-b border-neutral-200 py-4 first:pt-0 last:border-0 dark:border-neutral-800" key={item.id}><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold">{item.subject}</p><p className="text-sm text-neutral-500">{item.name} · {item.email}</p></div><button className="btn-secondary h-9 px-3" onClick={() => openContactChat(item.id)} type="button"><MessageSquare size={16} /> Chat</button></div><p className="mt-2 text-sm">{item.message}</p></div>)}{!data.messages.length && <p className="text-sm text-neutral-500">No contact messages.</p>}<Pager meta={meta} page={page} setPage={setPage} noun="messages" /></div>}
           {section === "user-reviews" && <div className="panel"><div className="max-h-[620px] space-y-3 overflow-auto">{data.reviews.map((review) => <div className="border-b border-neutral-200 pb-3 last:border-0 dark:border-neutral-800" key={review.id}><div className="flex items-start justify-between gap-3"><div><p className="font-semibold">{review.user.name}</p><p className="text-sm text-neutral-500">{new Date(review.createdAt).toLocaleDateString()}</p></div><button className={review.pinned ? "btn-primary h-9 px-3" : "btn-secondary h-9 px-3"} onClick={() => toggleReviewPin(review)} type="button">{review.pinned ? "Unpin" : "Pin"}</button></div><p className="mt-2 text-sm">{review.body}</p></div>)}{!data.reviews.length && <p className="text-sm text-neutral-500">No reviews yet.</p>}</div></div>}
           {["product-reviews", "vendor-reviews"].includes(section) && <div className="panel"><EntityReviewList type={section.startsWith("product") ? "product" : "vendor"} reviews={data.entityReviews} meta={meta} loading={false} page={page} setPage={setPage} onDelete={deleteEntityReview} /></div>}

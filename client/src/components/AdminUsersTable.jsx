@@ -11,6 +11,7 @@ const sortOptions = [
 ];
 
 export function AdminUsersTable({ title = "Users and vendors", users, onPromote, onReviewCod, meta, page, setPage, search, setSearch, sort, setSort }) {
+  const noun = title.toLowerCase().includes("vendor") ? "vendors" : "users";
 
   return (
     <div className="panel min-w-0 space-y-4 overflow-hidden">
@@ -24,7 +25,7 @@ export function AdminUsersTable({ title = "Users and vendors", users, onPromote,
             <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" size={16} />
             <input
               className="w-full pl-9"
-              placeholder="Search users"
+              placeholder={`Search ${noun}`}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -56,7 +57,7 @@ export function AdminUsersTable({ title = "Users and vendors", users, onPromote,
             </div>
           </article>
         ))}
-        {!users.length && <p className="py-8 text-center text-sm text-neutral-500">No matching users or vendors.</p>}
+        {!users.length && <p className="py-8 text-center text-sm text-neutral-500">No matching {noun}.</p>}
       </div>
       {meta && (
         <div className="flex flex-wrap items-center justify-between gap-3">

@@ -15,7 +15,8 @@ export function notificationTarget(notification, role) {
     if (includesAny(type, ["product review"])) return "/admin/dashboard/product-reviews";
     if (includesAny(type, ["vendor review"])) return "/admin/dashboard/vendor-reviews";
     if (includesAny(type, ["review", "testimonial"])) return "/admin/dashboard/user-reviews";
-    if (includesAny(type, ["user", "vendor registration", "vendor application"])) return "/admin/dashboard/users-vendors";
+    if (includesAny(type, ["vendor registration", "vendor application"])) return "/admin/dashboard/vendors";
+    if (includesAny(type, ["user"])) return "/admin/dashboard/users";
     return notification.orderId ? `/admin/dashboard/order-history?orderId=${notification.orderId}` : "/admin/dashboard/stat-viewer";
   }
 
