@@ -10,10 +10,23 @@ import { money, statusClass } from "../utils/format.js";
 import { RETURN_REASON_OPTIONS } from "../../../shared/returnReasons.mjs";
 
 const EMPTY_RETURN_REASON = { category: "", details: "" };
+const ORDERS_PER_PAGE = 10;
 
 function displayReturnReason(reason) {
   if (!reason) return "Reason not provided";
   return reason;
+}
+
+function OrderPager({ page, total, onChange }) {
+  const totalPages = Math.max(1, Math.ceil(total / ORDERS_PER_PAGE));
+  if (totalPages <= 1) return null;
+  return <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+    <p className="text-sm text-neutral-500">Page {page} of {totalPages} - {total} orders</p>
+    <div className="flex gap-2">
+      <button className="btn-secondary" disabled={page <= 1} onClick={() => onChange(page - 1)} type="button">Previous</button>
+      <button className="btn-secondary" disabled={page >= totalPages} onClick={() => onChange(page + 1)} type="button">Next</button>
+    </div>
+  </div>;
 }
 
 export function Orders() {
@@ -30,6 +43,7 @@ export function Orders() {
   const [returnConfirmation, setReturnConfirmation] = useState(null);
   const [returnReason, setReturnReason] = useState(EMPTY_RETURN_REASON);
   const [actingReturnItemId, setActingReturnItemId] = useState("");
+  const [orderPage, setOrderPage] = useState(1);
 
   async function loadOrders() {
     const { data } = await api.get("/orders");
@@ -40,6 +54,11 @@ export function Orders() {
   useEffect(() => {
     loadOrders().catch((err) => setError(getErrorMessage(err))).finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(orders.length / ORDERS_PER_PAGE));
+    if (orderPage > totalPages) setOrderPage(totalPages);
+  }, [orderPage, orders.length]);
 
   useEffect(() => {
     if (!socket) return undefined;
@@ -157,6 +176,8 @@ export function Orders() {
     );
   }
 
+  const pagedOrders = orders.slice((orderPage - 1) * ORDERS_PER_PAGE, orderPage * ORDERS_PER_PAGE);
+
   return (
     <section className="mx-auto max-w-7xl space-y-6 px-4 py-10">
       <Link className="btn-secondary inline-flex" to="/profile"><ArrowLeft size={17} /> Back to Profile</Link>
@@ -166,7 +187,10 @@ export function Orders() {
       </div>
       {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-200">{error}</p>}
       {success && <p className="rounded-md bg-clay/10 p-3 text-sm font-semibold text-clay">{success}</p>}
-      {loading ? <p>Loading orders...</p> : <OrderTable orders={orders} onViewDetails={openOrderDetails} onCancel={["user", "admin"].includes(user.role) ? (id) => runOrderAction(id, "cancel") : undefined} onReturnItem={["user", "admin"].includes(user.role) ? (order, item) => { setReturnConfirmation({ order, item }); setReturnReason(EMPTY_RETURN_REASON); } : undefined} actingOrderId={actingOrderId} actingReturnItemId={actingReturnItemId} />}
+      {loading ? <p>Loading orders...</p> : <>
+        <OrderTable orders={pagedOrders} onViewDetails={openOrderDetails} onCancel={["user", "admin"].includes(user.role) ? (id) => runOrderAction(id, "cancel") : undefined} onReturnItem={["user", "admin"].includes(user.role) ? (order, item) => { setReturnConfirmation({ order, item }); setReturnReason(EMPTY_RETURN_REASON); } : undefined} actingOrderId={actingOrderId} actingReturnItemId={actingReturnItemId} />
+        <OrderPager page={orderPage} total={orders.length} onChange={setOrderPage} />
+      </>}
       <ReturnItemModal
         request={returnConfirmation}
         reason={returnReason}
