@@ -1,5 +1,5 @@
 import React from "react";
-import { ArrowUpDown, ShieldAlert, Search, UserPlus } from "lucide-react";
+import { ArrowUpDown, ShieldAlert, Search, UserPlus, UserX } from "lucide-react";
 import { roleLabel } from "../utils/format.js";
 
 const sortOptions = [
@@ -10,7 +10,7 @@ const sortOptions = [
   ["role", "Role"]
 ];
 
-export function AdminUsersTable({ title = "Users and vendors", users, onPromote, onReviewCod, meta, page, setPage, search, setSearch, sort, setSort }) {
+export function AdminUsersTable({ title = "Users and vendors", users, onPromote, onRevokeVendorAccess, onReviewCod, meta, page, setPage, search, setSearch, sort, setSort }) {
   const noun = title.toLowerCase().includes("vendor") ? "vendors" : "users";
 
   return (
@@ -18,7 +18,7 @@ export function AdminUsersTable({ title = "Users and vendors", users, onPromote,
       <div className="space-y-3">
         <div>
           <h2 className="text-2xl font-black">{title}</h2>
-          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Search, sort, and promote approved marketplace sellers.</p>
+          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{noun === "vendors" ? "Search, sort, and manage approved marketplace sellers." : "Search, sort, and promote approved marketplace sellers."}</p>
         </div>
         <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,180px)]">
           <label className="relative block">
@@ -52,7 +52,9 @@ export function AdminUsersTable({ title = "Users and vendors", users, onPromote,
               </div>
               <div className="flex flex-wrap gap-2">
                 {onReviewCod && <button className="btn-secondary h-9 shrink-0 px-3" onClick={() => onReviewCod(user)} type="button"><ShieldAlert size={16} /> COD</button>}
-                {user.role === "user" ? <button className="btn-secondary h-9 shrink-0 px-3" onClick={() => onPromote(user.id)} type="button"><UserPlus size={16} /> Promote</button> : <span className="text-xs text-neutral-500">Approved seller</span>}
+                {user.role === "user" ? <button className="btn-secondary h-9 shrink-0 px-3" onClick={() => onPromote(user.id)} type="button"><UserPlus size={16} /> Promote</button> : null}
+                {user.role === "vendor" && onRevokeVendorAccess ? <button className="btn-secondary h-9 shrink-0 px-3 text-red-600" onClick={() => onRevokeVendorAccess(user)} type="button"><UserX size={16} /> Revoke Vendor Access</button> : null}
+                {user.role === "vendor" && !onRevokeVendorAccess ? <span className="text-xs text-neutral-500">Approved seller</span> : null}
               </div>
             </div>
           </article>

@@ -494,6 +494,10 @@ export const roleSchema = z.object({
   role: z.enum(["user", "vendor", "admin"])
 });
 
+export const adminUserParamsSchema = z.object({
+  id: z.string().uuid("Invalid user id")
+});
+
 export const profileSchema = z.object({
   name: z.string().min(2).optional(),
   phoneNumber: optionalPhoneSchema,

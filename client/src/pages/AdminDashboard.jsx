@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { BarChart3, ClipboardList, Grid2X2, Mail, MessageSquare, PackageCheck, Percent, Shirt, Star, Store, Trash2, UserRound, X } from "lucide-react";
+import { BarChart3, ClipboardList, Grid2X2, Mail, MessageSquare, PackageCheck, Percent, Shirt, Star, Store, Trash2, UserRound, UserX, X } from "lucide-react";
 import { Link, NavLink, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, getErrorMessage } from "../api/client.js";
 import { AdminCouponManager } from "../components/AdminCouponManager.jsx";
@@ -8,7 +8,9 @@ import { AdminUsersTable } from "../components/AdminUsersTable.jsx";
 import { AdminOrderHistory } from "../components/AdminOrderHistory.jsx";
 import { AdminNewsletterBroadcast } from "../components/AdminNewsletterBroadcast.jsx";
 import { AdminHomepageCategories } from "../components/AdminHomepageCategories.jsx";
+import { useAuth } from "../context/AuthContext.jsx";
 import { useMessages } from "../context/MessageContext.jsx";
+import { useNotification } from "../context/NotificationContext.jsx";
 
 const sections = [
   ["stat-viewer", "Stat Viewer", BarChart3],
@@ -94,10 +96,37 @@ function CodRefusalReviewModal({ review, revocationReason, setRevocationReason, 
   </div>;
 }
 
+function RevokeVendorAccessModal({ vendor, saving, onClose, onConfirm }) {
+  if (!vendor) return null;
+  return <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/45 px-4 py-8 backdrop-blur-sm">
+    <div className="panel w-full max-w-xl space-y-5 shadow-2xl">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm font-bold uppercase tracking-wide text-clay">Vendor access</p>
+          <h2 className="mt-1 text-2xl font-black">Revoke Vendor Access</h2>
+          <p className="mt-1 break-all text-sm text-neutral-500">{vendor.name} - {vendor.email}</p>
+        </div>
+        <button className="btn-secondary h-9 w-9 px-0" disabled={saving} onClick={onClose} title="Close" type="button"><X size={16} /></button>
+      </div>
+      <div className="space-y-3 text-sm leading-6 text-neutral-600 dark:text-neutral-300">
+        <p>This vendor will lose access to vendor-specific features, including the vendor dashboard and vendor-only API actions.</p>
+        <p>The account will remain active as a normal customer. Order history, wishlist, profile information, and other user-level data will be retained.</p>
+        <p>Existing products, bundles, orders, messages, income records, and return records will stay stored. The revoked vendor cannot add or edit products, but admins can continue viewing and managing those products.</p>
+      </div>
+      <div className="flex flex-wrap justify-end gap-3 border-t border-neutral-200 pt-4 dark:border-neutral-800">
+        <button className="btn-secondary" disabled={saving} onClick={onClose} type="button">Cancel</button>
+        <button className="btn-primary bg-red-600 hover:bg-red-700" disabled={saving} onClick={onConfirm} type="button"><UserX size={16} /> {saving ? "Revoking..." : "Confirm Revoke"}</button>
+      </div>
+    </div>
+  </div>;
+}
+
 export function AdminDashboard() {
   const { section = "stat-viewer" } = useParams();
   const valid = sections.some(([key]) => key === section);
+  const { refreshMe } = useAuth();
   const { socket } = useMessages();
+  const { showNotice } = useNotification();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [data, setData] = useState({ stats: null, products: [], users: [], vendors: [], orders: [], messages: [], reviews: [], entityReviews: [] });
@@ -117,6 +146,8 @@ export function AdminDashboard() {
   const [codReview, setCodReview] = useState(null);
   const [codReviewSaving, setCodReviewSaving] = useState(false);
   const [codRevocationReason, setCodRevocationReason] = useState("");
+  const [vendorRevocationTarget, setVendorRevocationTarget] = useState(null);
+  const [vendorRevocationSaving, setVendorRevocationSaving] = useState(false);
 
   const loadDashboardUpdates = useCallback(async () => {
     const response = await api.get("/admin/dashboard-updates");
@@ -171,6 +202,25 @@ export function AdminDashboard() {
 
   async function decideProduct(id, status, reason) { await api.patch(`/admin/products/${id}/${status}`, status === "reject" ? { reason } : {}); await loadSection(); }
   async function promoteUser(id) { try { await api.patch(`/admin/users/${id}/role`, { role: "vendor" }); setNotice("User promoted to vendor."); await loadSection(); } catch (err) { setError(getErrorMessage(err)); } }
+  async function revokeVendorAccess() {
+    if (!vendorRevocationTarget) return;
+    setVendorRevocationSaving(true);
+    setError("");
+    setNotice("");
+    try {
+      const { data: response } = await api.patch(`/admin/users/${vendorRevocationTarget.id}/revoke-vendor-access`);
+      setVendorRevocationTarget(null);
+      setNotice(response.message || "Vendor access revoked.");
+      showNotice("Vendor access revoked.", "success");
+      await Promise.all([loadSection(), refreshMe().catch(() => null)]);
+    } catch (err) {
+      const message = getErrorMessage(err);
+      setError(message);
+      showNotice(message, "error");
+    } finally {
+      setVendorRevocationSaving(false);
+    }
+  }
   async function reviewCodRefusals(user) {
     setCodRevocationReason("");
     setCodReview({ user, records: [] });
@@ -208,6 +258,7 @@ export function AdminDashboard() {
     <div className="mb-7 flex flex-wrap items-end justify-between gap-4"><div><p className="text-sm font-bold uppercase tracking-wide text-clay">Admin</p><h1 className="text-4xl font-black">Admin Dashboard</h1></div><Link className="btn-primary" to="/admin/wardrobe"><Shirt size={17} /> Wardrobe dashboard</Link></div>
     {(notice || error) && <p className={`mb-5 rounded-md p-3 text-sm ${error ? "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-200" : "bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-200"}`}>{error || notice}</p>}
     <CodRefusalReviewModal review={codReview} revocationReason={codRevocationReason} setRevocationReason={setCodRevocationReason} saving={codReviewSaving} onClose={() => setCodReview(null)} onRevoke={revokeCodRefusal} />
+    <RevokeVendorAccessModal vendor={vendorRevocationTarget} saving={vendorRevocationSaving} onClose={() => setVendorRevocationTarget(null)} onConfirm={revokeVendorAccess} />
     <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
       <aside><nav aria-label="Admin dashboard sections" className="flex gap-2 overflow-x-auto rounded-xl border border-neutral-200 bg-white p-2 dark:border-neutral-800 dark:bg-neutral-900 lg:sticky lg:top-24 lg:flex-col">{sections.map(([key, label, Icon]) => <NavLink className={({ isActive }) => `relative flex shrink-0 items-center gap-3 rounded-lg px-3 py-2.5 pr-8 text-sm font-bold transition ${isActive ? "bg-clay text-white" : "hover:bg-neutral-100 dark:hover:bg-neutral-800"}`} key={key} to={`/admin/dashboard/${key}`}><Icon size={17} />{label}{dashboardUpdates[key] > 0 && <span className="absolute right-3 h-2.5 w-2.5 rounded-full bg-red-500" aria-label={`${dashboardUpdates[key]} unseen updates`} />}</NavLink>)}</nav></aside>
       <main className="min-w-0"><div className="mb-5"><p className="text-sm font-bold uppercase tracking-wide text-clay">Dashboard section</p><h2 className="text-3xl font-black">{title}</h2></div>
@@ -218,7 +269,7 @@ export function AdminDashboard() {
           {section === "newsletter-broadcast" && <AdminNewsletterBroadcast />}
           {section === "product-approvals" && <AdminProductApprovalTable products={data.products} onApprove={(id) => decideProduct(id, "approve")} onReject={(id, reason) => decideProduct(id, "reject", reason)} />}
           {section === "users" && <AdminUsersTable title="Users" users={data.users} onPromote={promoteUser} onReviewCod={reviewCodRefusals} meta={meta} page={page} setPage={setPage} search={search} setSearch={(value) => { setSearch(value); setPage(1); }} sort={sort} setSort={(value) => { setSort(value); setPage(1); }} />}
-          {section === "vendors" && <AdminUsersTable title="Vendors" users={data.vendors} onPromote={promoteUser} onReviewCod={reviewCodRefusals} meta={vendorMeta} page={vendorPage} setPage={setVendorPage} search={vendorSearch} setSearch={(value) => { setVendorSearch(value); setVendorPage(1); }} sort={vendorSort} setSort={(value) => { setVendorSort(value); setVendorPage(1); }} />}
+          {section === "vendors" && <AdminUsersTable title="Vendors" users={data.vendors} onPromote={promoteUser} onRevokeVendorAccess={setVendorRevocationTarget} onReviewCod={reviewCodRefusals} meta={vendorMeta} page={vendorPage} setPage={setVendorPage} search={vendorSearch} setSearch={(value) => { setVendorSearch(value); setVendorPage(1); }} sort={vendorSort} setSort={(value) => { setVendorSort(value); setVendorPage(1); }} />}
           {section === "order-history" && <div><AdminOrderHistory orders={data.orders.slice((orderPage - 1) * 10, orderPage * 10)} focusedOrderId={searchParams.get("orderId") || ""} /><Pager meta={{ page: orderPage, totalPages: Math.max(1, Math.ceil(data.orders.length / 10)), total: data.orders.length }} page={orderPage} setPage={setOrderPage} noun="orders" /></div>}
           {section === "contact-messages" && <div className="panel">{data.messages.map((item) => <div className="border-b border-neutral-200 py-4 first:pt-0 last:border-0 dark:border-neutral-800" key={item.id}><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold">{item.subject}</p><p className="text-sm text-neutral-500">{item.name} · {item.email}</p></div><button className="btn-secondary h-9 px-3" onClick={() => openContactChat(item.id)} type="button"><MessageSquare size={16} /> Chat</button></div><p className="mt-2 text-sm">{item.message}</p></div>)}{!data.messages.length && <p className="text-sm text-neutral-500">No contact messages.</p>}<Pager meta={meta} page={page} setPage={setPage} noun="messages" /></div>}
           {section === "user-reviews" && <div className="panel"><div className="max-h-[620px] space-y-3 overflow-auto">{data.reviews.map((review) => <div className="border-b border-neutral-200 pb-3 last:border-0 dark:border-neutral-800" key={review.id}><div className="flex items-start justify-between gap-3"><div><p className="font-semibold">{review.user.name}</p><p className="text-sm text-neutral-500">{new Date(review.createdAt).toLocaleDateString()}</p></div><button className={review.pinned ? "btn-primary h-9 px-3" : "btn-secondary h-9 px-3"} onClick={() => toggleReviewPin(review)} type="button">{review.pinned ? "Unpin" : "Pin"}</button></div><p className="mt-2 text-sm">{review.body}</p></div>)}{!data.reviews.length && <p className="text-sm text-neutral-500">No reviews yet.</p>}</div></div>}
