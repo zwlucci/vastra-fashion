@@ -1,7 +1,7 @@
 import { query, withTransaction } from "../config/db.js";
 import { AppError, notFound } from "../utils/errors.js";
 import { serializeUser } from "../utils/serializers.js";
-import { emitDashboardUpdated } from "../socket.js";
+import { emitDashboardUpdated, emitUserRoleChanged } from "../socket.js";
 import { dashboardSectionCounts, markDashboardSectionSeen } from "../utils/dashboardSections.js";
 
 export async function listUsers(req, res) {
@@ -148,6 +148,39 @@ export async function updateUserRole(req, res) {
   const { rows } = await query("UPDATE users SET role = 'vendor' WHERE id = $1 RETURNING *", [req.params.id]);
   emitDashboardUpdated("users");
   res.json({ user: serializeUser(rows[0]) });
+}
+
+export async function revokeVendorAccessForUser(client, userId) {
+  const existing = await client.query("SELECT id, role FROM users WHERE id = $1 FOR UPDATE", [userId]);
+  const user = existing.rows[0];
+  if (!user) throw notFound("User not found");
+  if (user.role === "user") {
+    throw new AppError("Vendor access has already been revoked for this account.", 409);
+  }
+  if (user.role !== "vendor") {
+    throw new AppError("Only vendor accounts can have vendor access revoked.", 400);
+  }
+
+  const { rows } = await client.query(
+    "UPDATE users SET role = 'user' WHERE id = $1 AND role = 'vendor' RETURNING *",
+    [userId]
+  );
+  if (!rows[0]) {
+    throw new AppError("Vendor access has already been revoked for this account.", 409);
+  }
+  return rows[0];
+}
+
+export async function revokeVendorAccess(req, res) {
+  const user = await withTransaction((client) => revokeVendorAccessForUser(client, req.params.id));
+  const serialized = serializeUser(user);
+  emitDashboardUpdated("vendors");
+  emitDashboardUpdated("users");
+  emitUserRoleChanged(serialized);
+  res.json({
+    user: serialized,
+    message: "Vendor access revoked. The account remains active as a customer, and existing marketplace records are retained."
+  });
 }
 
 export async function getStats(req, res) {

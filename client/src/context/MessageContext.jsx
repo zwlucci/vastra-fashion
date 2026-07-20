@@ -6,7 +6,7 @@ import { useAuth } from "./AuthContext.jsx";
 const MessageContext = createContext(null);
 
 export function MessageProvider({ children }) {
-  const { isAuthenticated, token } = useAuth();
+  const { isAuthenticated, token, refreshMe } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
   const [socket, setSocket] = useState(null);
 
@@ -41,6 +41,9 @@ export function MessageProvider({ children }) {
     nextSocket.on("unread:updated", ({ count }) => {
       setUnreadCount(count || 0);
     });
+    nextSocket.on("user:role-changed", () => {
+      refreshMe().catch(() => {});
+    });
 
     setSocket(nextSocket);
 
@@ -48,7 +51,7 @@ export function MessageProvider({ children }) {
       nextSocket.disconnect();
       setSocket(null);
     };
-  }, [isAuthenticated, token]);
+  }, [isAuthenticated, refreshMe, token]);
 
   const value = useMemo(() => ({
     unreadCount,

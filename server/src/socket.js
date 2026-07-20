@@ -167,6 +167,11 @@ export function emitDashboardUpdated(scope = "all") {
   io.to("admins").emit("dashboard:updated", { scope });
 }
 
+export function emitUserRoleChanged(user) {
+  if (!io || !user?.id) return;
+  io.to(`user:${user.id}`).emit("user:role-changed", { user });
+}
+
 export async function emitCartStockInvalidated(product) {
   if (!io || !product) return;
   const { rows } = await query("SELECT DISTINCT user_id FROM cart_items WHERE product_id = $1", [product.id]);
