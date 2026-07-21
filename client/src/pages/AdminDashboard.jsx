@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { BarChart3, ClipboardList, FileCheck2, Grid2X2, Mail, MessageSquare, PackageCheck, Percent, Shirt, Star, Store, Trash2, UserRound, UserX, X } from "lucide-react";
+import { AlertTriangle, BarChart3, ClipboardList, FileCheck2, Grid2X2, Mail, MessageSquare, PackageCheck, Percent, Shirt, Star, Store, Trash2, UserRound, UserX, X } from "lucide-react";
 import { Link, NavLink, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, getErrorMessage } from "../api/client.js";
 import { AdminCouponManager } from "../components/AdminCouponManager.jsx";
@@ -100,25 +100,38 @@ function CodRefusalReviewModal({ review, revocationReason, setRevocationReason, 
 }
 
 function RevokeVendorAccessModal({ vendor, saving, onClose, onConfirm }) {
+  const [confirmText, setConfirmText] = useState("");
+  useEffect(() => {
+    setConfirmText("");
+  }, [vendor?.id]);
   if (!vendor) return null;
+  const confirmed = confirmText.trim().toUpperCase() === "REVOKE";
   return <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/45 px-4 py-8 backdrop-blur-sm">
-    <div className="panel w-full max-w-xl space-y-5 shadow-2xl">
+    <div aria-labelledby="revoke-vendor-title" aria-modal="true" className="panel w-full max-w-xl space-y-5 shadow-2xl" role="dialog">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-sm font-bold uppercase tracking-wide text-clay">Vendor access</p>
-          <h2 className="mt-1 text-2xl font-black">Revoke Vendor Access</h2>
+          <h2 className="mt-1 text-2xl font-black" id="revoke-vendor-title">Revoke Vendor Access</h2>
           <p className="mt-1 break-all text-sm text-neutral-500">{vendor.name} - {vendor.email}</p>
         </div>
         <button className="btn-secondary h-9 w-9 px-0" disabled={saving} onClick={onClose} title="Close" type="button"><X size={16} /></button>
+      </div>
+      <div className="flex gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-100">
+        <AlertTriangle className="mt-0.5 shrink-0" size={18} />
+        <p><span className="font-bold">This is a destructive admin action.</span> Confirming will immediately remove vendor privileges from this account.</p>
       </div>
       <div className="space-y-3 text-sm leading-6 text-neutral-600 dark:text-neutral-300">
         <p>This vendor will lose access to vendor-specific features, including the vendor dashboard and vendor-only API actions.</p>
         <p>The account will remain active as a normal customer. Order history, wishlist, profile information, and other user-level data will be retained.</p>
         <p>Existing products, bundles, orders, messages, income records, and return records will stay stored. The revoked vendor cannot add or edit products, but admins can continue viewing and managing those products.</p>
       </div>
+      <label className="block text-sm font-semibold">
+        Type REVOKE to confirm
+        <input className="mt-1 w-full" disabled={saving} value={confirmText} onChange={(event) => setConfirmText(event.target.value)} placeholder="REVOKE" />
+      </label>
       <div className="flex flex-wrap justify-end gap-3 border-t border-neutral-200 pt-4 dark:border-neutral-800">
         <button className="btn-secondary" disabled={saving} onClick={onClose} type="button">Cancel</button>
-        <button className="btn-primary bg-red-600 hover:bg-red-700" disabled={saving} onClick={onConfirm} type="button"><UserX size={16} /> {saving ? "Revoking..." : "Confirm Revoke"}</button>
+        <button className="btn-primary bg-red-600 hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60" disabled={saving || !confirmed} onClick={onConfirm} type="button"><UserX size={16} /> {saving ? "Revoking..." : "Confirm Revoke"}</button>
       </div>
     </div>
   </div>;
