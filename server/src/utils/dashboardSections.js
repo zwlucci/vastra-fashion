@@ -13,15 +13,16 @@ const adminSections = {
             UNION ALL
             SELECT GREATEST(created_at, updated_at) AS changed_at FROM app_settings WHERE key = 'homepage_categories_visible'
           ) updates
-          WHERE changed_at > $2`,
+          WHERE changed_at > $2
+            AND $1::uuid IS NOT NULL`,
     params: () => []
   },
   "product-approvals": {
-    sql: "SELECT COUNT(*)::int AS count FROM products WHERE status = 'pending' AND created_at > $2",
+    sql: "SELECT COUNT(*)::int AS count FROM products WHERE status = 'pending' AND created_at > $2 AND $1::uuid IS NOT NULL",
     params: () => []
   },
   "vendor-applications": {
-    sql: "SELECT COUNT(*)::int AS count FROM vendor_applications WHERE status = 'pending' AND created_at > $2",
+    sql: "SELECT COUNT(*)::int AS count FROM vendor_applications WHERE status = 'pending' AND created_at > $2 AND $1::uuid IS NOT NULL",
     params: () => []
   },
   users: {
@@ -33,23 +34,23 @@ const adminSections = {
     params: () => []
   },
   "order-history": {
-    sql: "SELECT COUNT(*)::int AS count FROM orders WHERE GREATEST(created_at, updated_at) > $2",
+    sql: "SELECT COUNT(*)::int AS count FROM orders WHERE GREATEST(created_at, updated_at) > $2 AND $1::uuid IS NOT NULL",
     params: () => []
   },
   "contact-messages": {
-    sql: "SELECT COUNT(*)::int AS count FROM contact_messages WHERE created_at > $2",
+    sql: "SELECT COUNT(*)::int AS count FROM contact_messages WHERE created_at > $2 AND $1::uuid IS NOT NULL",
     params: () => []
   },
   "user-reviews": {
-    sql: "SELECT COUNT(*)::int AS count FROM reviews WHERE GREATEST(created_at, updated_at) > $2",
+    sql: "SELECT COUNT(*)::int AS count FROM reviews WHERE GREATEST(created_at, updated_at) > $2 AND $1::uuid IS NOT NULL",
     params: () => []
   },
   "product-reviews": {
-    sql: "SELECT COUNT(*)::int AS count FROM product_reviews WHERE GREATEST(created_at, updated_at) > $2",
+    sql: "SELECT COUNT(*)::int AS count FROM product_reviews WHERE GREATEST(created_at, updated_at) > $2 AND $1::uuid IS NOT NULL",
     params: () => []
   },
   "vendor-reviews": {
-    sql: "SELECT COUNT(*)::int AS count FROM vendor_reviews WHERE GREATEST(created_at, updated_at) > $2",
+    sql: "SELECT COUNT(*)::int AS count FROM vendor_reviews WHERE GREATEST(created_at, updated_at) > $2 AND $1::uuid IS NOT NULL",
     params: () => []
   },
   "newsletter-broadcast": {

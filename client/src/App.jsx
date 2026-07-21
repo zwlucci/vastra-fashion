@@ -21,6 +21,7 @@ import { Register } from "./pages/Register.jsx";
 import { ResetPassword } from "./pages/ResetPassword.jsx";
 import { Shop } from "./pages/Shop.jsx";
 import { VendorDashboard } from "./pages/VendorDashboard.jsx";
+import { VendorApplicationStatus } from "./pages/VendorApplicationStatus.jsx";
 import { VendorProfile } from "./pages/VendorProfile.jsx";
 import { VerifyEmail } from "./pages/VerifyEmail.jsx";
 import { Wishlist } from "./pages/Wishlist.jsx";
@@ -37,6 +38,7 @@ export default function App() {
         <Route path="/vendors/:id" element={<VendorProfile />} />
         <Route path="/contact" element={<Contact />} />
         <Route path="/pricing" element={<Pricing />} />
+        <Route path="/vendor-application/status" element={<ProtectedRoute><VendorApplicationStatus /></ProtectedRoute>} />
         <Route path="/login" element={<Login />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />

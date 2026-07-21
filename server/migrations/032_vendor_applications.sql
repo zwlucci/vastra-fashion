@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS vendor_applications (
   business_address TEXT NOT NULL,
   business_description TEXT NOT NULL,
   subscription_plan TEXT NOT NULL CHECK (subscription_plan IN ('monthly', 'annual')),
-  subscription_price NUMERIC(10, 2) NOT NULL CHECK (subscription_price IN (299, 24999)),
+  subscription_price NUMERIC(10, 2) NOT NULL CHECK (subscription_price IN (299, 2499)),
   status vendor_application_status NOT NULL DEFAULT 'pending',
   admin_message TEXT,
   supporting_document TEXT,
@@ -34,6 +34,18 @@ CREATE INDEX IF NOT EXISTS idx_vendor_applications_status_created
 
 CREATE INDEX IF NOT EXISTS idx_vendor_applications_user_created
   ON vendor_applications(user_id, created_at DESC);
+
+UPDATE vendor_applications
+SET subscription_price = 2499
+WHERE subscription_plan = 'annual'
+  AND subscription_price = 24999;
+
+ALTER TABLE vendor_applications
+  DROP CONSTRAINT IF EXISTS vendor_applications_subscription_price_check;
+
+ALTER TABLE vendor_applications
+  ADD CONSTRAINT vendor_applications_subscription_price_check
+  CHECK (subscription_price IN (299, 2499));
 
 DROP TRIGGER IF EXISTS vendor_applications_set_updated_at ON vendor_applications;
 CREATE TRIGGER vendor_applications_set_updated_at BEFORE UPDATE ON vendor_applications
