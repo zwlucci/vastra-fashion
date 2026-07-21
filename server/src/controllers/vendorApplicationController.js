@@ -23,7 +23,7 @@ export const VENDOR_SUBSCRIPTION_PLANS = {
   annual: {
     id: "annual",
     name: "Annual Plan",
-    price: 24999,
+    price: 2499,
     currency: "NPR",
     billingPeriod: "Annual",
     benefits: [

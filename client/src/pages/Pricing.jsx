@@ -18,7 +18,7 @@ const fallbackPlans = [
   {
     id: "annual",
     name: "Annual Plan",
-    price: 24999,
+    price: 2499,
     currency: "NPR",
     billingPeriod: "Annual",
     benefits: ["Verified storefront review", "Vendor dashboard access after approval", "Product submission tools", "Customer messaging and order management", "Long-term seller plan"]

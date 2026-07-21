@@ -36,7 +36,7 @@ const payload = {
 
 test("vendorPlanFor keeps subscription prices on the backend", () => {
   assert.equal(vendorPlanFor("monthly").price, 299);
-  assert.equal(vendorPlanFor("annual").price, 24999);
+  assert.equal(vendorPlanFor("annual").price, 2499);
   assert.throws(() => vendorPlanFor("enterprise"), { statusCode: 400 });
 });
 
@@ -44,7 +44,7 @@ test("createVendorApplicationForUser inserts the backend plan price", async () =
   const client = fakeClient([
     [{ id: userId, role: "user" }],
     [],
-    [{ id: applicationId, user_id: userId, ...payload, full_name: payload.fullName, brand_name: payload.brandName, contact_number: payload.contactNumber, business_email: payload.businessEmail, business_address: payload.businessAddress, business_description: payload.businessDescription, subscription_plan: "annual", subscription_price: 24999, status: "pending", payment_status: "pending", subscription_status: "pending_admin_review", created_at: new Date().toISOString() }],
+    [{ id: applicationId, user_id: userId, ...payload, full_name: payload.fullName, brand_name: payload.brandName, contact_number: payload.contactNumber, business_email: payload.businessEmail, business_address: payload.businessAddress, business_description: payload.businessDescription, subscription_plan: "annual", subscription_price: 2499, status: "pending", payment_status: "pending", subscription_status: "pending_admin_review", created_at: new Date().toISOString() }],
     [{ id: adminId }],
     [{ id: "55555555-5555-4555-8555-555555555555", metadata: {}, type: "vendor_application_submitted", title: "New vendor application", message: "Application", created_at: new Date().toISOString() }]
   ]);
@@ -52,8 +52,8 @@ test("createVendorApplicationForUser inserts the backend plan price", async () =
   const result = await createVendorApplicationForUser(client, { id: userId, role: "user" }, { ...payload, subscriptionPrice: 1 });
   const insert = client.queries.find(({ text }) => /INSERT INTO vendor_applications/i.test(text));
 
-  assert.equal(result.application.subscriptionPrice, 24999);
-  assert.equal(insert.params[8], 24999);
+  assert.equal(result.application.subscriptionPrice, 2499);
+  assert.equal(insert.params[8], 2499);
 });
 
 test("createVendorApplicationForUser rejects vendors and admins", async () => {
