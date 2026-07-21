@@ -10,7 +10,8 @@ import { ThemeToggle } from "./ThemeToggle.jsx";
 const navItems = [
   { to: "/", label: "Home" },
   { to: "/shop", label: "Shop" },
-  { to: "/contact", label: "Contact" }
+  { to: "/contact", label: "Contact" },
+  { to: "/pricing", label: "Pricing" }
 ];
 
 export function Navbar() {

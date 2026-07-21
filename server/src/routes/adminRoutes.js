@@ -8,6 +8,7 @@ import { listAdminProducts, setProductStatus, updateProduct } from "../controlle
 import { listAdminReviews, setReviewPinned } from "../controllers/reviewController.js";
 import { deleteEntityReviewAsAdmin, listEntityReviewsForAdmin } from "../controllers/entityReviewController.js";
 import { listWardrobeProducts, updateWardrobeProduct } from "../controllers/wardrobeController.js";
+import { approveVendorApplication, getVendorApplication, listVendorApplications, rejectVendorApplication } from "../controllers/vendorApplicationController.js";
 import { createCoupon, disableCoupon, listCoupons, updateCoupon } from "../controllers/couponController.js";
 import {
   createAdminHomepageCategoryShortcut,
@@ -18,7 +19,7 @@ import {
 } from "../controllers/homepageCategoryController.js";
 import { authenticateUser, requireAdmin } from "../middleware/auth.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { adminUserParamsSchema, codRefusalRevocationSchema, couponSchema, couponToggleSchema, homepageCategoryShortcutSchema, homepageCategoryVisibilitySchema, newsletterBroadcastSchema, newsletterTestSchema, productDecisionSchema, productSchema, reviewPinSchema, roleSchema, validate, wardrobeAdminSchema } from "../utils/validators.js";
+import { adminUserParamsSchema, codRefusalRevocationSchema, couponSchema, couponToggleSchema, homepageCategoryShortcutSchema, homepageCategoryVisibilitySchema, newsletterBroadcastSchema, newsletterTestSchema, productDecisionSchema, productSchema, reviewPinSchema, roleSchema, validate, vendorApplicationDecisionSchema, vendorApplicationRejectionSchema, wardrobeAdminSchema } from "../utils/validators.js";
 
 export const adminRoutes = Router();
 
@@ -54,6 +55,10 @@ adminRoutes.patch("/products/:id/reject", validate(productDecisionSchema), (req,
 }, asyncHandler(setProductStatus));
 adminRoutes.get("/contact-messages", asyncHandler(listContactMessages));
 adminRoutes.post("/contact-messages/:id/conversation", asyncHandler(openContactConversation));
+adminRoutes.get("/vendor-applications", asyncHandler(listVendorApplications));
+adminRoutes.get("/vendor-applications/:id", asyncHandler(getVendorApplication));
+adminRoutes.patch("/vendor-applications/:id/approve", validate(vendorApplicationDecisionSchema), asyncHandler(approveVendorApplication));
+adminRoutes.patch("/vendor-applications/:id/reject", validate(vendorApplicationRejectionSchema), asyncHandler(rejectVendorApplication));
 adminRoutes.get("/users", asyncHandler(listUsers));
 adminRoutes.patch("/users/:id/role", validate(roleSchema), asyncHandler(updateUserRole));
 adminRoutes.patch("/users/:id/revoke-vendor-access", validate(adminUserParamsSchema, "params"), asyncHandler(revokeVendorAccess));

@@ -82,6 +82,10 @@ export async function saveHomepageCategoryIcon(imageData) {
   return saveImage(imageData, "homepage-categories");
 }
 
+export async function saveVendorApplicationDocument(imageData) {
+  return saveImage(imageData, "vendor-applications");
+}
+
 export async function saveProductMedia(mediaData, declaredType = "image") {
   if (!mediaData) return null;
   if (declaredType === "image") return saveProductImage(mediaData);

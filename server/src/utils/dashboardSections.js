@@ -20,6 +20,10 @@ const adminSections = {
     sql: "SELECT COUNT(*)::int AS count FROM products WHERE status = 'pending' AND created_at > $2",
     params: () => []
   },
+  "vendor-applications": {
+    sql: "SELECT COUNT(*)::int AS count FROM vendor_applications WHERE status = 'pending' AND created_at > $2",
+    params: () => []
+  },
   users: {
     sql: "SELECT COUNT(*)::int AS count FROM users WHERE role = 'user' AND id <> $1 AND GREATEST(created_at, updated_at) > $2",
     params: () => []

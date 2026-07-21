@@ -187,6 +187,7 @@ export async function getStats(req, res) {
   const { rows } = await query(`
     SELECT
       (SELECT COUNT(*)::int FROM products WHERE status = 'pending') AS pending_approvals,
+      (SELECT COUNT(*)::int FROM vendor_applications WHERE status = 'pending') AS pending_vendor_applications,
       (SELECT COUNT(*)::int FROM products WHERE product_type = 'bundle' AND status = 'pending') AS pending_bundle_approvals,
       (SELECT COUNT(*)::int FROM orders WHERE status NOT IN ('delivered', 'cancelled', 'delivery_refused')) AS active_orders,
       (SELECT COUNT(DISTINCT conversation_messages.conversation_id)::int

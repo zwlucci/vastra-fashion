@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { BarChart3, ClipboardList, Grid2X2, Mail, MessageSquare, PackageCheck, Percent, Shirt, Star, Store, Trash2, UserRound, UserX, X } from "lucide-react";
+import { BarChart3, ClipboardList, FileCheck2, Grid2X2, Mail, MessageSquare, PackageCheck, Percent, Shirt, Star, Store, Trash2, UserRound, UserX, X } from "lucide-react";
 import { Link, NavLink, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, getErrorMessage } from "../api/client.js";
 import { AdminCouponManager } from "../components/AdminCouponManager.jsx";
@@ -7,6 +7,7 @@ import { AdminProductApprovalTable } from "../components/AdminProductApprovalTab
 import { AdminUsersTable } from "../components/AdminUsersTable.jsx";
 import { AdminOrderHistory } from "../components/AdminOrderHistory.jsx";
 import { AdminNewsletterBroadcast } from "../components/AdminNewsletterBroadcast.jsx";
+import { AdminVendorApplications } from "../components/AdminVendorApplications.jsx";
 import { AdminHomepageCategories } from "../components/AdminHomepageCategories.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useMessages } from "../context/MessageContext.jsx";
@@ -18,6 +19,7 @@ const sections = [
   ["homepage-categories", "Homepage Categories", Grid2X2],
   ["newsletter-broadcast", "Newsletter Broadcast", Mail],
   ["product-approvals", "Product Approvals", PackageCheck],
+  ["vendor-applications", "Vendor Applications", FileCheck2],
   ["users", "Users", UserRound],
   ["vendors", "Vendors", Store],
   ["order-history", "Order History", ClipboardList],
@@ -34,6 +36,7 @@ const dashboardScopeSections = {
   newsletter: "newsletter-broadcast",
   "newsletter-broadcast": "newsletter-broadcast",
   products: "product-approvals",
+  "vendor-applications": "vendor-applications",
   users: "users",
   vendors: "vendors",
   orders: "order-history",
@@ -160,7 +163,7 @@ export function AdminDashboard() {
   }, []);
 
   const loadSection = useCallback(async () => {
-    if (!valid || ["coupons", "homepage-categories", "newsletter-broadcast"].includes(section)) { setLoading(false); return; }
+    if (!valid || ["coupons", "homepage-categories", "newsletter-broadcast", "vendor-applications"].includes(section)) { setLoading(false); return; }
     setLoading(true);
     try {
       if (section === "stat-viewer") { const response = await api.get("/admin/stats"); setData((current) => ({ ...current, stats: response.data.stats })); }
@@ -263,10 +266,11 @@ export function AdminDashboard() {
       <aside><nav aria-label="Admin dashboard sections" className="flex gap-2 overflow-x-auto rounded-xl border border-neutral-200 bg-white p-2 dark:border-neutral-800 dark:bg-neutral-900 lg:sticky lg:top-24 lg:flex-col">{sections.map(([key, label, Icon]) => <NavLink className={({ isActive }) => `relative flex shrink-0 items-center gap-3 rounded-lg px-3 py-2.5 pr-8 text-sm font-bold transition ${isActive ? "bg-clay text-white" : "hover:bg-neutral-100 dark:hover:bg-neutral-800"}`} key={key} to={`/admin/dashboard/${key}`}><Icon size={17} />{label}{dashboardUpdates[key] > 0 && <span className="absolute right-3 h-2.5 w-2.5 rounded-full bg-red-500" aria-label={`${dashboardUpdates[key]} unseen updates`} />}</NavLink>)}</nav></aside>
       <main className="min-w-0"><div className="mb-5"><p className="text-sm font-bold uppercase tracking-wide text-clay">Dashboard section</p><h2 className="text-3xl font-black">{title}</h2></div>
         {loading ? <p className="panel text-sm text-neutral-500">Loading {title.toLowerCase()}...</p> : <>
-          {section === "stat-viewer" && data.stats && <div className="space-y-7 rounded-2xl border border-neutral-200 bg-neutral-50/60 p-4 dark:border-neutral-800 dark:bg-neutral-950/40 sm:p-6"><MetricSection title="Needs Attention" metrics={[["Pending Approvals", data.stats.pending_approvals ?? 0], ["Pending Bundle Approvals", data.stats.pending_bundle_approvals ?? 0], ["Active Orders", data.stats.active_orders ?? 0], ["Unread Chats", data.stats.unread_chats ?? 0]]} /><MetricSection title="Growth" metrics={[["New Users This Week", data.stats.new_users_this_week ?? 0], ["New Vendors This Week", data.stats.new_vendors_this_week ?? 0], ["Total Approved Products", data.stats.total_approved_products ?? 0], ["Approved Bundles", data.stats.approved_bundles ?? 0], ["Rejected Bundles", data.stats.rejected_bundles ?? 0]]} /><MetricSection title="Performance" metrics={[["Top Selling Product", data.stats.top_selling_product], ["Most Wishlisted Product", data.stats.most_wishlisted_product], ["Popular Category", data.stats.popular_category]]} /></div>}
+          {section === "stat-viewer" && data.stats && <div className="space-y-7 rounded-2xl border border-neutral-200 bg-neutral-50/60 p-4 dark:border-neutral-800 dark:bg-neutral-950/40 sm:p-6"><MetricSection title="Needs Attention" metrics={[["Pending Approvals", data.stats.pending_approvals ?? 0], ["Pending Vendor Applications", data.stats.pending_vendor_applications ?? 0], ["Pending Bundle Approvals", data.stats.pending_bundle_approvals ?? 0], ["Active Orders", data.stats.active_orders ?? 0], ["Unread Chats", data.stats.unread_chats ?? 0]]} /><MetricSection title="Growth" metrics={[["New Users This Week", data.stats.new_users_this_week ?? 0], ["New Vendors This Week", data.stats.new_vendors_this_week ?? 0], ["Total Approved Products", data.stats.total_approved_products ?? 0], ["Approved Bundles", data.stats.approved_bundles ?? 0], ["Rejected Bundles", data.stats.rejected_bundles ?? 0]]} /><MetricSection title="Performance" metrics={[["Top Selling Product", data.stats.top_selling_product], ["Most Wishlisted Product", data.stats.most_wishlisted_product], ["Popular Category", data.stats.popular_category]]} /></div>}
           {section === "coupons" && <AdminCouponManager />}
           {section === "homepage-categories" && <AdminHomepageCategories />}
           {section === "newsletter-broadcast" && <AdminNewsletterBroadcast />}
+          {section === "vendor-applications" && <AdminVendorApplications />}
           {section === "product-approvals" && <AdminProductApprovalTable products={data.products} onApprove={(id) => decideProduct(id, "approve")} onReject={(id, reason) => decideProduct(id, "reject", reason)} />}
           {section === "users" && <AdminUsersTable title="Users" users={data.users} onPromote={promoteUser} onReviewCod={reviewCodRefusals} meta={meta} page={page} setPage={setPage} search={search} setSearch={(value) => { setSearch(value); setPage(1); }} sort={sort} setSort={(value) => { setSort(value); setPage(1); }} />}
           {section === "vendors" && <AdminUsersTable title="Vendors" users={data.vendors} onPromote={promoteUser} onRevokeVendorAccess={setVendorRevocationTarget} onReviewCod={reviewCodRefusals} meta={vendorMeta} page={vendorPage} setPage={setVendorPage} search={vendorSearch} setSearch={(value) => { setVendorSearch(value); setVendorPage(1); }} sort={vendorSort} setSort={(value) => { setVendorSort(value); setVendorPage(1); }} />}

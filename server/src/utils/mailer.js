@@ -290,6 +290,37 @@ export async function sendPasswordResetEmail(to, payload) {
   }
 }
 
+export async function sendVendorApplicationDecisionEmail(to, { approved, brandName, planLabel, adminMessage = "" }) {
+  const config = getMailConfig();
+  const transporter = transporterFor(config);
+  const subject = approved ? "Your VASTRA vendor application was approved" : "Your VASTRA vendor application was reviewed";
+  const title = approved ? "Vendor application approved" : "Vendor application rejected";
+  const message = approved
+    ? `Your application for ${brandName} has been approved. Your account now has vendor access. Subscription payment activation is still pending admin/payment setup.`
+    : `Your application for ${brandName} was rejected. You can review the reason and submit a new application from the Pricing page.`;
+  const reason = adminMessage ? `\n\nAdmin message: ${adminMessage}` : "";
+  const html = `<!doctype html><html><body style="margin:0;background:#f5f1eb;font-family:Arial,sans-serif;color:#171717">
+    <div style="max-width:640px;margin:24px auto;background:#fff;border-radius:14px;overflow:hidden;border:1px solid #e5e5e5">
+      <div style="background:#171717;color:#fff;padding:22px 28px"><div style="font-size:25px;font-weight:800;letter-spacing:3px">VASTRA</div></div>
+      <div style="padding:28px">
+        <span style="display:inline-block;background:#f1e3da;color:#8a4f33;border-radius:999px;padding:6px 10px;font-size:12px;font-weight:700;text-transform:uppercase">Vendor application</span>
+        <h1 style="font-size:26px;margin:16px 0 14px">${escapeHtml(title)}</h1>
+        <p style="line-height:1.7;margin:0 0 16px">${escapeHtml(message)}</p>
+        <p style="line-height:1.7;margin:0 0 16px"><strong>Selected plan:</strong> ${escapeHtml(planLabel)}</p>
+        ${adminMessage ? `<p style="line-height:1.7;margin:0 0 16px"><strong>Admin message:</strong> ${escapeHtml(adminMessage)}</p>` : ""}
+      </div>
+    </div>
+  </body></html>`;
+
+  await transporter.sendMail({
+    from: config.from,
+    to,
+    subject,
+    text: `${title}\n\n${message}\n\nSelected plan: ${planLabel}${reason}`,
+    html
+  });
+}
+
 export async function sendOrderConfirmationEmail(to, order) {
   const config = getMailConfig();
   const transporter = transporterFor(config);

@@ -16,6 +16,7 @@ import { NewsletterUnsubscribe } from "./pages/NewsletterUnsubscribe.jsx";
 import { Orders } from "./pages/Orders.jsx";
 import { OrderSuccess } from "./pages/OrderSuccess.jsx";
 import { ProductDetail } from "./pages/ProductDetail.jsx";
+import { Pricing } from "./pages/Pricing.jsx";
 import { Register } from "./pages/Register.jsx";
 import { ResetPassword } from "./pages/ResetPassword.jsx";
 import { Shop } from "./pages/Shop.jsx";
@@ -35,6 +36,7 @@ export default function App() {
         <Route path="/shop/:id" element={<ProductDetail />} />
         <Route path="/vendors/:id" element={<VendorProfile />} />
         <Route path="/contact" element={<Contact />} />
+        <Route path="/pricing" element={<Pricing />} />
         <Route path="/login" element={<Login />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
