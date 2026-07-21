@@ -1,7 +1,8 @@
-import { Check, Clock, FileImage, ShieldCheck, Store, X } from "lucide-react";
+import { Check, Clock, CreditCard, FileImage, ShieldCheck, Store, X } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, getErrorMessage } from "../api/client.js";
+import { buildCheckoutPaymentPayload, CheckoutPaymentSection, validateCheckoutPayment } from "../components/CheckoutPaymentSection.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useNotification } from "../context/NotificationContext.jsx";
 import { money, statusClass } from "../utils/format.js";
@@ -18,7 +19,7 @@ const fallbackPlans = [
   {
     id: "annual",
     name: "Annual Plan",
-    price: 2499,
+    price: 24999,
     currency: "NPR",
     billingPeriod: "Annual",
     benefits: ["Verified storefront review", "Vendor dashboard access after approval", "Product submission tools", "Customer messaging and order management", "Long-term seller plan"]
@@ -88,10 +89,35 @@ function ApplicationStatus({ user, application }) {
         </div>
         <span className={`badge ${statusClass(application.status)}`}>{application.status}</span>
       </div>
-      {application.status === "pending" && <p className="rounded-lg bg-amber-50 p-3 text-sm font-semibold text-amber-800 dark:bg-amber-950 dark:text-amber-100">Your application is waiting for admin review. Application buttons are disabled while this is pending.</p>}
+      {application.status === "pending" && <p className="rounded-lg bg-amber-50 p-3 text-sm font-semibold text-amber-800 dark:bg-amber-950 dark:text-amber-100">Your payment is confirmed and the application is waiting for admin review.</p>}
       {application.status === "rejected" && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-100"><span className="font-bold">Admin message:</span> {application.adminMessage || "No reason provided."}</p>}
-      {application.status === "approved" && <p className="rounded-lg bg-green-50 p-3 text-sm font-semibold text-green-800 dark:bg-green-950 dark:text-green-100">Approved. Your account should now have vendor access; subscription payment activation remains pending.</p>}
+      {application.status === "approved" && <p className="rounded-lg bg-green-50 p-3 text-sm font-semibold text-green-800 dark:bg-green-950 dark:text-green-100">Approved. Your vendor access is active.</p>}
     </section>
+  );
+}
+
+function paymentMethodLabel(method) {
+  return method === "card" ? "Card" : method === "cod" ? "Cash on Delivery" : method || "Not selected";
+}
+
+function PaymentSummary({ plan, form, paymentMethod }) {
+  return <aside className="panel h-fit space-y-4 lg:sticky lg:top-24">
+    <h2 className="text-xl font-black">Payment Summary</h2>
+    <div className="space-y-3 text-sm">
+      <div className="flex justify-between gap-4"><span className="text-neutral-500">Selected plan</span><strong>{plan?.name}</strong></div>
+      <div className="flex justify-between gap-4"><span className="text-neutral-500">Duration</span><strong>{plan?.billingPeriod}</strong></div>
+      <div className="flex justify-between gap-4"><span className="text-neutral-500">Price</span><strong>{money(plan?.price || 0)}</strong></div>
+      <div className="flex justify-between gap-4"><span className="text-neutral-500">Payment method</span><strong>{paymentMethodLabel(paymentMethod)}</strong></div>
+      <div className="flex justify-between gap-4"><span className="text-neutral-500">Applicant</span><strong className="text-right">{form.fullName || "Not provided"}</strong></div>
+      <div className="flex justify-between gap-4"><span className="text-neutral-500">Email</span><strong className="text-right">{form.businessEmail || "Not provided"}</strong></div>
+    </div>
+    <div className="flex justify-between border-t border-neutral-200 pt-4 text-lg dark:border-neutral-800"><span className="font-bold">Total</span><strong className="text-clay">{money(plan?.price || 0)}</strong></div>
+  </aside>;
+}
+
+function newIdempotencyKey() {
+  return window.crypto?.randomUUID?.() || "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (char) =>
+    (Number(char) ^ Math.random() * 16 >> Number(char) / 4).toString(16)
   );
 }
 
@@ -105,8 +131,19 @@ export function Pricing() {
   const [selectedPlan, setSelectedPlan] = useState(searchParams.get("plan") === "annual" ? "annual" : "monthly");
   const [form, setForm] = useState(emptyForm);
   const [issues, setIssues] = useState({});
+  const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [paymentStep, setPaymentStep] = useState(false);
+  const [checkoutDetails, setCheckoutDetails] = useState({ paymentPreferences: [], savedPaymentMethods: [], demoSavedCardsEnabled: false, codPolicy: null });
+  const [paymentMethod, setPaymentMethod] = useState("card");
+  const [paymentPreferenceId, setPaymentPreferenceId] = useState("");
+  const [savedPaymentMethodId, setSavedPaymentMethodId] = useState("");
+  const [savedCardCvv, setSavedCardCvv] = useState("");
+  const [saveCardDetails, setSaveCardDetails] = useState(false);
+  const [savedCardMeta, setSavedCardMeta] = useState({ nickname: "", billingAddress: "", billingCity: "", billingState: "", billingCountry: "Nepal", postalCode: "", isDefault: true });
+  const [card, setCard] = useState({ cardholderName: "", cardNumber: "", expiryDate: "", cvv: "" });
+  const [idempotencyKey, setIdempotencyKey] = useState(() => newIdempotencyKey());
   const formRef = useRef(null);
 
   const selected = useMemo(() => plans.find((plan) => plan.id === selectedPlan) || plans[0], [plans, selectedPlan]);
@@ -134,6 +171,19 @@ export function Pricing() {
         if (isAuthenticated) {
           const applicationResponse = await api.get("/vendor-applications/me");
           if (active) setApplication(applicationResponse.data.application || null);
+          const checkoutResponse = await api.get("/checkout-details");
+          if (active) {
+            setCheckoutDetails({
+              paymentPreferences: checkoutResponse.data.paymentPreferences || [],
+              savedPaymentMethods: checkoutResponse.data.savedPaymentMethods || [],
+              demoSavedCardsEnabled: Boolean(checkoutResponse.data.demoSavedCardsEnabled),
+              codPolicy: checkoutResponse.data.codPolicy || null
+            });
+            const defaultSavedCard = (checkoutResponse.data.savedPaymentMethods || []).find((payment) => payment.isDefault);
+            if (checkoutResponse.data.demoSavedCardsEnabled && defaultSavedCard) {
+              setSavedPaymentMethodId(defaultSavedCard.id);
+            }
+          }
         } else if (active) {
           setApplication(null);
         }
@@ -157,11 +207,13 @@ export function Pricing() {
       contactNumber: current.contactNumber || user.phoneNumber || "",
       businessEmail: current.businessEmail || user.email || ""
     }));
+    setCard((current) => ({ ...current, cardholderName: current.cardholderName || user.name || "" }));
   }, [user]);
 
   function choosePlan(planId, focusForm = false) {
     setSelectedPlan(planId);
     setSearchParams({ plan: planId });
+    setPaymentStep(false);
     if (!focusForm) return;
     if (!isAuthenticated) {
       navigate("/login", { state: { from: { pathname: "/pricing", search: `?plan=${planId}` } } });
@@ -197,16 +249,48 @@ export function Pricing() {
       navigate("/login", { state: { from: { pathname: "/pricing", search: `?plan=${selectedPlan}` } } });
       return;
     }
+    setPaymentStep(true);
+    setMessage("");
+    setIssues({});
+    window.setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  }
+
+  async function payForApplication() {
+    if (submitting) return;
+    const paymentError = validateCheckoutPayment({ checkoutDetails, paymentMethod, savedPaymentMethodId, savedCardCvv, card });
+    if (paymentError) {
+      setMessage(paymentError);
+      return;
+    }
     setSubmitting(true);
+    setMessage("");
     setIssues({});
     try {
-      const { data } = await api.post("/vendor-applications", { ...form, subscriptionPlan: selectedPlan });
+      const { data } = await api.post("/vendor-applications", {
+        ...form,
+        subscriptionPlan: selectedPlan,
+        idempotencyKey,
+        ...buildCheckoutPaymentPayload({
+          paymentMethod,
+          paymentPreferenceId,
+          savedPaymentMethodId,
+          savedCardCvv,
+          card,
+          saveCardDetails,
+          savedCardMeta
+        })
+      });
       setApplication(data.application);
       setForm(emptyForm);
+      setCard((current) => ({ ...current, cardNumber: "", cvv: "" }));
+      setSavedCardCvv("");
+      setIdempotencyKey(newIdempotencyKey());
       showNotice(data.message || "Vendor application submitted.", "success");
       await Promise.all([refreshOrderNotifications?.().catch(() => {}), refreshMe?.().catch(() => {})]);
+      navigate("/vendor-application/status?paid=1");
     } catch (err) {
       setIssues(err.response?.data?.issues || {});
+      setMessage(getErrorMessage(err));
       showNotice(getErrorMessage(err), "error");
     } finally {
       setSubmitting(false);
@@ -220,7 +304,7 @@ export function Pricing() {
           <div>
             <p className="text-sm font-bold uppercase tracking-[0.22em] text-clay">Pricing</p>
             <h1 className="mt-2 text-4xl font-black md:text-5xl">Apply to Sell on VASTRA</h1>
-            <p className="mt-4 max-w-2xl text-neutral-600 dark:text-neutral-300">Choose a vendor subscription plan, submit your store details, and wait for admin approval. Payment activation is kept pending until review is complete.</p>
+            <p className="mt-4 max-w-2xl text-neutral-600 dark:text-neutral-300">Choose a vendor subscription plan, complete payment, and your paid application will go to admin review.</p>
           </div>
           <ApplicationStatus user={user} application={application} />
         </div>
@@ -248,12 +332,14 @@ export function Pricing() {
           ))}
         </div>
 
+        {message && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-200">{message}</p>}
+
         <form className="panel space-y-5" ref={formRef} onSubmit={submit}>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-sm font-bold uppercase tracking-wide text-clay">Vendor application</p>
               <h2 className="text-2xl font-black">Selected plan: {selected?.name}</h2>
-              <p className="mt-1 text-sm text-neutral-500">{selected?.billingPeriod} - {money(selected?.price)}. Backend stores this price; it is not accepted from the browser.</p>
+              <p className="mt-1 text-sm text-neutral-500">{selected?.billingPeriod} - {money(selected?.price)}. Backend stores and charges this price; it is not accepted from the browser.</p>
             </div>
             <span className="badge bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-100">{loading ? "Loading" : "Ready"}</span>
           </div>
@@ -272,6 +358,22 @@ export function Pricing() {
               {user?.role === "vendor" && <Link className="btn-primary mt-4" to="/vendor/dashboard">Go to Vendor Dashboard</Link>}
               {user?.role === "admin" && <Link className="btn-secondary mt-4" to="/admin/dashboard/vendor-applications">Review Vendor Applications</Link>}
             </div>
+          ) : paymentStep ? (
+            <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+              <div className="space-y-5">
+                <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm font-semibold text-green-800 dark:border-green-900 dark:bg-green-950 dark:text-green-100">Your application details are ready. Complete the payment below to submit it for admin review.</div>
+                <div className="rounded-lg border border-neutral-200 p-4 dark:border-neutral-800">
+                  <div className="mb-5 flex items-center gap-3"><CreditCard className="text-clay" /><div><p className="text-sm font-bold uppercase tracking-wide text-clay">Payment</p><h3 className="text-2xl font-black">Vendor subscription</h3></div></div>
+                  <CheckoutPaymentSection checkoutDetails={checkoutDetails} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} paymentPreferenceId={paymentPreferenceId} setPaymentPreferenceId={setPaymentPreferenceId} savedPaymentMethodId={savedPaymentMethodId} setSavedPaymentMethodId={setSavedPaymentMethodId} savedCardCvv={savedCardCvv} setSavedCardCvv={setSavedCardCvv} card={card} setCard={setCard} saveCardDetails={saveCardDetails} setSaveCardDetails={setSaveCardDetails} savedCardMeta={savedCardMeta} setSavedCardMeta={setSavedCardMeta} deliveryAddress={form.businessAddress} allowedMethods={["card"]} methodNotes={{ card: "Vendor subscriptions require a confirmed card payment before admin review." }} showCodPolicy={false} />
+                  <div className="mt-6 flex flex-wrap gap-3">
+                    <button className="btn-secondary" disabled={submitting} onClick={() => { setPaymentStep(false); setMessage("Payment cancelled. Your application has not been submitted or charged."); }} type="button">Cancel payment</button>
+                    <button className="btn-secondary" disabled={submitting} onClick={() => setPaymentStep(false)} type="button">Edit application</button>
+                    <button className="btn-primary" disabled={submitting} onClick={payForApplication} type="button">{submitting ? "Processing..." : "Pay and Submit"}</button>
+                  </div>
+                </div>
+              </div>
+              <PaymentSummary plan={selected} form={form} paymentMethod={paymentMethod} />
+            </div>
           ) : (
             <>
               {disabledReason && <p className="rounded-lg bg-neutral-50 p-3 text-sm font-semibold text-neutral-600 dark:bg-neutral-950 dark:text-neutral-300">{disabledReason}</p>}
@@ -286,7 +388,7 @@ export function Pricing() {
               </div>
               <div className="flex flex-wrap items-center justify-end gap-3 border-t border-neutral-200 pt-4 dark:border-neutral-800">
                 <button className="btn-secondary" onClick={() => setForm(emptyForm)} type="button"><X size={16} /> Clear</button>
-                <button className="btn-primary" disabled={submitting || Boolean(disabledReason)} type="submit"><Store size={16} /> {submitting ? "Submitting..." : "Apply for Vendor"}</button>
+                <button className="btn-primary" disabled={submitting || Boolean(disabledReason)} type="submit"><Store size={16} /> Continue to Payment</button>
               </div>
             </>
           )}

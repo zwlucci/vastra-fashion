@@ -286,46 +286,34 @@ export const newsletterTestSchema = newsletterBroadcastBaseSchema.extend({
   }
 });
 
-export const checkoutSchema = z.object({
-  paymentMethod: z.enum(["card", "cod"]),
-  fullName: z.string().trim().min(2).max(100),
-  phoneNumber: z.string().trim().regex(/^\+?[0-9 ()-]{7,20}$/, "Enter a valid phone number"),
-  deliveryAddress: z.string().trim().min(5).max(300),
-  savedAddressId: z.string().uuid().optional().or(z.literal("")),
+const checkoutCardSchema = z.object({
+  cardholderName: z.string().trim().min(2).max(100),
+  cardNumber: z.string().transform((value) => value.replace(/[ -]/g, "")).pipe(z.string().regex(/^\d{13,19}$/, "Enter a valid card number")),
+  expiryDate: z.string().trim().regex(/^(0[1-9]|1[0-2])\/\d{2}$/, "Use MM/YY"),
+  cvv: z.string().trim().regex(/^\d{3,4}$/, "Enter a valid CVV")
+});
+
+const savedCheckoutCardMetaSchema = z.object({
+  nickname: z.string().trim().min(1).max(80).optional().default("Checkout card"),
+  billingAddress: z.string().trim().max(200).optional().default(""),
+  billingCity: z.string().trim().max(100).optional().default(""),
+  billingState: z.string().trim().max(100).optional().default(""),
+  billingCountry: z.string().trim().max(80).optional().default("Nepal"),
+  postalCode: z.string().trim().max(20).optional().default("")
+});
+
+const checkoutPaymentFields = {
   paymentPreferenceId: z.string().uuid().optional().or(z.literal("")),
   savedPaymentMethodId: z.string().uuid().optional().or(z.literal("")),
   savedCardCvv: z.string().trim().regex(/^\d{3,4}$/, "Enter a valid CVV").optional().or(z.literal("")),
-  couponCode: z.string().trim().max(40).optional().default(""),
-  saveShippingInfo: z.boolean().optional().default(false),
-  saveAddress: z.boolean().optional().default(false),
-  address: z.object({
-    label: z.enum(["Home", "Work", "Other"]).optional().default("Home"),
-    country: z.string().trim().min(2).max(80).optional().default("Nepal"),
-    province: z.string().trim().max(100).optional().default(""),
-    city: z.string().trim().max(100).optional().default(""),
-    area: z.string().trim().max(140).optional().default(""),
-    detailedAddress: z.string().trim().max(300).optional().default(""),
-    postalCode: z.string().trim().max(20).optional().default(""),
-    deliveryInstructions: z.string().trim().max(300).optional().default("")
-  }).optional(),
   saveCardDetails: z.boolean().optional().default(false),
   savePaymentPreference: z.boolean().optional().default(false),
   saveCardAsDefault: z.boolean().optional().default(false),
-  savedCard: z.object({
-    nickname: z.string().trim().min(1).max(80).optional().default("Checkout card"),
-    billingAddress: z.string().trim().max(200).optional().default(""),
-    billingCity: z.string().trim().max(100).optional().default(""),
-    billingState: z.string().trim().max(100).optional().default(""),
-    billingCountry: z.string().trim().max(80).optional().default("Nepal"),
-    postalCode: z.string().trim().max(20).optional().default("")
-  }).optional(),
-  card: z.object({
-    cardholderName: z.string().trim().min(2).max(100),
-    cardNumber: z.string().transform((value) => value.replace(/[ -]/g, "")).pipe(z.string().regex(/^\d{13,19}$/, "Enter a valid card number")),
-    expiryDate: z.string().trim().regex(/^(0[1-9]|1[0-2])\/\d{2}$/, "Use MM/YY"),
-    cvv: z.string().trim().regex(/^\d{3,4}$/, "Enter a valid CVV")
-  }).optional()
-}).superRefine((data, context) => {
+  savedCard: savedCheckoutCardMetaSchema.optional(),
+  card: checkoutCardSchema.optional()
+};
+
+function refineCardCheckoutPayment(data, context) {
   if (data.paymentMethod !== "card") return;
   if (data.savedPaymentMethodId) {
     if (!data.savedCardCvv) {
@@ -342,7 +330,29 @@ export const checkoutSchema = z.object({
   if (expiry < new Date()) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "Card has expired", path: ["card", "expiryDate"] });
   }
-});
+}
+
+export const checkoutSchema = z.object({
+  paymentMethod: z.enum(["card", "cod"]),
+  fullName: z.string().trim().min(2).max(100),
+  phoneNumber: z.string().trim().regex(/^\+?[0-9 ()-]{7,20}$/, "Enter a valid phone number"),
+  deliveryAddress: z.string().trim().min(5).max(300),
+  savedAddressId: z.string().uuid().optional().or(z.literal("")),
+  ...checkoutPaymentFields,
+  couponCode: z.string().trim().max(40).optional().default(""),
+  saveShippingInfo: z.boolean().optional().default(false),
+  saveAddress: z.boolean().optional().default(false),
+  address: z.object({
+    label: z.enum(["Home", "Work", "Other"]).optional().default("Home"),
+    country: z.string().trim().min(2).max(80).optional().default("Nepal"),
+    province: z.string().trim().max(100).optional().default(""),
+    city: z.string().trim().max(100).optional().default(""),
+    area: z.string().trim().max(140).optional().default(""),
+    detailedAddress: z.string().trim().max(300).optional().default(""),
+    postalCode: z.string().trim().max(20).optional().default(""),
+    deliveryInstructions: z.string().trim().max(300).optional().default("")
+  }).optional()
+}).superRefine(refineCardCheckoutPayment);
 
 const savedCardBaseSchema = {
   nickname: z.string().trim().min(1, "Card nickname is required").max(80),
@@ -491,6 +501,12 @@ export const vendorApplicationSchema = z.object({
   subscriptionPlan: z.enum(["monthly", "annual"]),
   supportingDocumentData: z.string().trim().optional().default("")
 }).strict();
+
+export const vendorApplicationPaymentSchema = vendorApplicationSchema.extend({
+  paymentMethod: z.enum(["card"]),
+  ...checkoutPaymentFields,
+  idempotencyKey: z.string().uuid("Payment request is invalid")
+}).strict().superRefine(refineCardCheckoutPayment);
 
 export const vendorApplicationDecisionSchema = z.object({
   adminMessage: z.string().trim().max(800).optional().default("")
