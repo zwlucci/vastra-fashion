@@ -98,12 +98,33 @@ export function AuthProvider({ children }) {
     return data;
   }
 
-  async function updateProfile(payload) {
-    await api.patch("/auth/me", payload);
-    const { data } = await api.get("/auth/me");
+  const refreshMe = useCallback(async () => {
     const activeToken = token || localStorage.getItem("vastra_token");
+    if (!activeToken) {
+      persist(null, null);
+      return null;
+    }
+    const { data } = await api.get("/auth/me");
     persist(activeToken, data.user);
     return data.user;
+  }, [persist, token]);
+
+  useEffect(() => {
+    const interceptorId = api.interceptors.response.use(
+      (response) => response,
+      async (error) => {
+        if (error.response?.status === 403 && error.response?.data?.message === "Insufficient role" && localStorage.getItem("vastra_token")) {
+          refreshMe().catch(() => {});
+        }
+        return Promise.reject(error);
+      }
+    );
+    return () => api.interceptors.response.eject(interceptorId);
+  }, [refreshMe]);
+
+  async function updateProfile(payload) {
+    await api.patch("/auth/me", payload);
+    return refreshMe();
   }
 
   function logout() {
@@ -122,10 +143,11 @@ export function AuthProvider({ children }) {
       register,
       verifyEmail,
       resendVerificationOtp,
+      refreshMe,
       updateProfile,
       logout
     }),
-    [token, user, loading]
+    [token, user, loading, refreshMe]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

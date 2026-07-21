@@ -15,7 +15,7 @@ export function notificationTarget(notification, role) {
     if (includesAny(type, ["product review"])) return "/admin/dashboard/product-reviews";
     if (includesAny(type, ["vendor review"])) return "/admin/dashboard/vendor-reviews";
     if (includesAny(type, ["review", "testimonial"])) return "/admin/dashboard/user-reviews";
-    if (includesAny(type, ["vendor registration", "vendor application"])) return "/admin/dashboard/vendors";
+    if (includesAny(type, ["vendor registration", "vendor application"])) return "/admin/dashboard/vendor-applications";
     if (includesAny(type, ["user"])) return "/admin/dashboard/users";
     return notification.orderId ? `/admin/dashboard/order-history?orderId=${notification.orderId}` : "/admin/dashboard/stat-viewer";
   }
@@ -29,6 +29,7 @@ export function notificationTarget(notification, role) {
   }
 
   if (includesAny(type, ["message", "chat"])) return metadata.conversationId ? `/messages?conversationId=${metadata.conversationId}` : "/messages";
+  if (includesAny(type, ["vendor application"])) return "/pricing";
   if (includesAny(type, ["wishlist"])) return "/wishlist";
   if (includesAny(type, ["cart"])) return "/cart";
   if (metadata.productId) return `/shop/${metadata.productId}`;

@@ -481,6 +481,25 @@ export const codRefusalRevocationSchema = z.object({
   revocationReason: z.string().trim().min(5, "An admin reason is required").max(800)
 }).strict();
 
+export const vendorApplicationSchema = z.object({
+  fullName: z.string().trim().min(2, "Full name is required").max(100),
+  brandName: z.string().trim().min(2, "Brand or store name is required").max(120),
+  contactNumber: z.string().trim().regex(/^\+?[0-9 ()-]{7,20}$/, "Enter a valid contact number"),
+  businessEmail: z.string().trim().toLowerCase().email("Enter a valid business email").max(160),
+  businessAddress: z.string().trim().min(5, "Business address is required").max(300),
+  businessDescription: z.string().trim().min(20, "Tell us a little more about your business").max(2000),
+  subscriptionPlan: z.enum(["monthly", "annual"]),
+  supportingDocumentData: z.string().trim().optional().default("")
+}).strict();
+
+export const vendorApplicationDecisionSchema = z.object({
+  adminMessage: z.string().trim().max(800).optional().default("")
+}).strict();
+
+export const vendorApplicationRejectionSchema = z.object({
+  adminMessage: z.string().trim().min(5, "A rejection reason is required").max(800)
+}).strict();
+
 export const orderReturnStatusSchema = z.object({
   status: z.enum(["approved", "rejected", "completed"]),
   reason: z.string().trim().min(5, "A reason is required").max(800).optional()
@@ -492,6 +511,10 @@ export const vendorReturnDecisionSchema = z.object({
 
 export const roleSchema = z.object({
   role: z.enum(["user", "vendor", "admin"])
+});
+
+export const adminUserParamsSchema = z.object({
+  id: z.string().uuid("Invalid user id")
 });
 
 export const profileSchema = z.object({

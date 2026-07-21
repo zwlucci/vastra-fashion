@@ -14,6 +14,8 @@ export function Login() {
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const needsVerification = error.toLowerCase().includes("verify your email");
+  const from = location.state?.from;
+  const destination = from?.pathname?.startsWith("/") ? `${from.pathname}${from.search || ""}` : "/";
 
   async function submit(event) {
     event.preventDefault();
@@ -26,7 +28,7 @@ export function Login() {
         setChallengeId(result.challengeId);
         setMessage(result.message);
       } else {
-        navigate("/", { replace: true });
+        navigate(destination, { replace: true });
       }
     } catch (err) {
       setError(getErrorMessage(err));
@@ -41,8 +43,8 @@ export function Login() {
     setMessage("");
     setSubmitting(true);
     try {
-      const result = await verifyLoginOtp({ challengeId, otp });
-      navigate("/", { replace: true });
+      await verifyLoginOtp({ challengeId, otp });
+      navigate(destination, { replace: true });
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {

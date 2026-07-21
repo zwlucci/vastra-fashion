@@ -19,6 +19,7 @@ import { productRoutes, vendorRoutes } from "./routes/productRoutes.js";
 import { reviewRoutes } from "./routes/reviewRoutes.js";
 import { homepageCategoryRoutes } from "./routes/homepageCategoryRoutes.js";
 import { vendorPublicRoutes } from "./routes/vendorPublicRoutes.js";
+import { vendorApplicationRoutes } from "./routes/vendorApplicationRoutes.js";
 import { wishlistRoutes } from "./routes/wishlistRoutes.js";
 import { wardrobeRoutes } from "./routes/wardrobeRoutes.js";
 import { productReviewRoutes, vendorReviewRoutes } from "./routes/entityReviewRoutes.js";
@@ -29,7 +30,7 @@ dotenv.config();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const app = express();
 const uploadsDir = path.resolve(__dirname, "../uploads");
-const uploadFolders = new Set(["products", "profiles", "wardrobe", "homepage-categories", "product-reviews"]);
+const uploadFolders = new Set(["products", "profiles", "wardrobe", "homepage-categories", "product-reviews", "vendor-applications"]);
 const frontendPort = String(process.env.FRONTEND_PORT || "5173");
 export const allowedOrigins = new Set([
   process.env.CLIENT_URL,
@@ -81,6 +82,7 @@ fs.mkdirSync(path.join(uploadsDir, "profiles"), { recursive: true });
 fs.mkdirSync(path.join(uploadsDir, "wardrobe"), { recursive: true });
 fs.mkdirSync(path.join(uploadsDir, "homepage-categories"), { recursive: true });
 fs.mkdirSync(path.join(uploadsDir, "product-reviews"), { recursive: true });
+fs.mkdirSync(path.join(uploadsDir, "vendor-applications"), { recursive: true });
 app.use(
   "/uploads",
   express.static(uploadsDir, {
@@ -125,6 +127,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/homepage-categories", homepageCategoryRoutes);
 app.use("/api/vendors", vendorPublicRoutes);
+app.use("/api/vendor-applications", vendorApplicationRoutes);
 app.use("/api/vendor", vendorRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/cart", cartRoutes);
