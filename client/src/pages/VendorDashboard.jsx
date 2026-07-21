@@ -91,7 +91,20 @@ export function VendorDashboard() {
     Promise.all([loadProducts(), loadBundles(), loadOrders(), loadIncome(), loadReturns(), loadDashboardUpdates()]);
   }, []);
 
-  useEffect(() => { setProductPage(1); setBundlePage(1); setOrderPage(1); setReturnPage(1); api.patch(`/vendor/dashboard-updates/${section}/seen`).then(({ data }) => setDashboardUpdates(data.updates || {})).catch(() => {}); }, [section]);
+  useEffect(() => {
+    setProductPage(1);
+    setBundlePage(1);
+    setOrderPage(1);
+    setReturnPage(1);
+    setMessage("");
+    setEditing(null);
+    setEditingBundle(null);
+    setShowForm(false);
+    setShowBundleForm(false);
+    setDeletingProduct(null);
+    setReturnDecision(null);
+    api.patch(`/vendor/dashboard-updates/${section}/seen`).then(({ data }) => setDashboardUpdates(data.updates || {})).catch(() => {});
+  }, [section]);
   useEffect(() => { if (section === "returned-products") loadReturns(returnPage).catch(() => {}); }, [returnPage, section]);
   useEffect(() => { if (section === "bundled-products") loadBundles(bundlePage, bundleSearch, bundleStatus).catch(() => {}); }, [bundlePage, bundleSearch, bundleStatus, section]);
 

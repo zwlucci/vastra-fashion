@@ -198,7 +198,18 @@ export function AdminDashboard() {
     } catch (err) { setError(getErrorMessage(err)); } finally { setLoading(false); }
   }, [page, search, section, sort, valid, vendorPage, vendorSearch, vendorSort]);
 
-  useEffect(() => { setPage(1); setVendorPage(1); setOrderPage(1); setMeta(null); setVendorMeta(null); setError(""); markSectionSeen(section).catch(() => {}); }, [markSectionSeen, section]);
+  useEffect(() => {
+    setPage(1);
+    setVendorPage(1);
+    setOrderPage(1);
+    setMeta(null);
+    setVendorMeta(null);
+    setNotice("");
+    setError("");
+    setCodReview(null);
+    setVendorRevocationTarget(null);
+    markSectionSeen(section).catch(() => {});
+  }, [markSectionSeen, section]);
   useEffect(() => { if (section !== "order-history") return; const orderId = searchParams.get("orderId"); const index = data.orders.findIndex((order) => order.id === orderId); if (index >= 0) setOrderPage(Math.floor(index / 10) + 1); }, [data.orders, searchParams, section]);
   useEffect(() => { loadSection(); loadDashboardUpdates().catch(() => {}); }, [loadSection, loadDashboardUpdates]);
   useEffect(() => {
