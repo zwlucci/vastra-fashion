@@ -45,5 +45,8 @@ ALTER TABLE order_notifications
       'return_updated',
       'payment_updated',
       'price_drop',
-      'cod_refusal_recorded'
+      'cod_refusal_recorded',
+      'vendor_application_submitted',
+      'vendor_application_approved',
+      'vendor_application_rejected'
     ));

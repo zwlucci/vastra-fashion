@@ -64,7 +64,7 @@ function applicationRow(overrides = {}) {
     business_address: payload.businessAddress,
     business_description: payload.businessDescription,
     subscription_plan: payload.subscriptionPlan,
-    subscription_price: 24999,
+    subscription_price: 2499,
     status: "pending",
     payment_status: "paid",
     subscription_status: "pending_admin_review",
@@ -73,7 +73,7 @@ function applicationRow(overrides = {}) {
     vendor_payment_id: paymentId,
     created_at: new Date().toISOString(),
     payment_id: paymentId,
-    payment_amount: 24999,
+    payment_amount: 2499,
     payment_payment_method: "card",
     payment_payment_status: "paid",
     payment_transaction_reference: "VENDOR-TEST",
@@ -91,7 +91,7 @@ function applicationRow(overrides = {}) {
 
 test("vendorPlanFor keeps subscription prices on the backend", () => {
   assert.equal(vendorPlanFor("monthly").price, 299);
-  assert.equal(vendorPlanFor("annual").price, 24999);
+  assert.equal(vendorPlanFor("annual").price, 2499);
   assert.throws(() => vendorPlanFor("enterprise"), { statusCode: 400 });
 });
 
@@ -123,11 +123,11 @@ test("createPaidVendorApplicationForUser records annual payment and pending appl
   const appInsert = client.queries.find(({ text }) => /INSERT INTO vendor_applications/i.test(text));
   const paymentInsert = client.queries.find(({ text }) => /INSERT INTO vendor_subscription_payments/i.test(text));
 
-  assert.equal(result.application.subscriptionPrice, 24999);
+  assert.equal(result.application.subscriptionPrice, 2499);
   assert.equal(result.application.paymentStatus, "paid");
   assert.equal(result.application.payment.paymentStatus, "paid");
-  assert.equal(appInsert.params[8], 24999);
-  assert.equal(paymentInsert.params[4], 24999);
+  assert.equal(appInsert.params[8], 2499);
+  assert.equal(paymentInsert.params[4], 2499);
 });
 
 test("createPaidVendorApplicationForUser records monthly payment", async () => {

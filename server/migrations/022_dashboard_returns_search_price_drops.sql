@@ -24,7 +24,19 @@ BEGIN
   ALTER TABLE order_notifications DROP CONSTRAINT IF EXISTS order_notifications_type_check;
   ALTER TABLE order_notifications
     ADD CONSTRAINT order_notifications_type_check
-    CHECK (type IN ('order_placed', 'status_updated', 'order_cancelled', 'return_requested', 'return_updated', 'payment_updated', 'price_drop'));
+    CHECK (type IN (
+      'order_placed',
+      'status_updated',
+      'order_cancelled',
+      'return_requested',
+      'return_updated',
+      'payment_updated',
+      'price_drop',
+      'cod_refusal_recorded',
+      'vendor_application_submitted',
+      'vendor_application_approved',
+      'vendor_application_rejected'
+    ));
 END $$;
 
 CREATE INDEX IF NOT EXISTS idx_dashboard_section_seen_user ON dashboard_section_seen(user_id, section_key);

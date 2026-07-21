@@ -35,13 +35,13 @@ CREATE INDEX IF NOT EXISTS idx_vendor_applications_status_created
 CREATE INDEX IF NOT EXISTS idx_vendor_applications_user_created
   ON vendor_applications(user_id, created_at DESC);
 
+ALTER TABLE vendor_applications
+  DROP CONSTRAINT IF EXISTS vendor_applications_subscription_price_check;
+
 UPDATE vendor_applications
 SET subscription_price = 2499
 WHERE subscription_plan = 'annual'
-  AND subscription_price = 24999;
-
-ALTER TABLE vendor_applications
-  DROP CONSTRAINT IF EXISTS vendor_applications_subscription_price_check;
+  AND subscription_price <> 2499;
 
 ALTER TABLE vendor_applications
   ADD CONSTRAINT vendor_applications_subscription_price_check

@@ -1,14 +1,14 @@
-UPDATE vendor_applications
-SET subscription_price = 24999
-WHERE subscription_plan = 'annual'
-  AND subscription_price = 2499;
-
 ALTER TABLE vendor_applications
   DROP CONSTRAINT IF EXISTS vendor_applications_subscription_price_check;
 
+UPDATE vendor_applications
+SET subscription_price = 2499
+WHERE subscription_plan = 'annual'
+  AND subscription_price <> 2499;
+
 ALTER TABLE vendor_applications
   ADD CONSTRAINT vendor_applications_subscription_price_check
-  CHECK (subscription_price IN (299, 24999));
+  CHECK (subscription_price IN (299, 2499));
 
 ALTER TABLE vendor_applications
   ADD COLUMN IF NOT EXISTS subscription_start_date TIMESTAMPTZ,
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS vendor_subscription_payments (
   vendor_application_id UUID NOT NULL REFERENCES vendor_applications(id) ON DELETE CASCADE,
   subscription_plan TEXT NOT NULL CHECK (subscription_plan IN ('monthly', 'annual')),
   billing_period TEXT NOT NULL CHECK (billing_period IN ('monthly', 'annual')),
-  amount NUMERIC(10, 2) NOT NULL CHECK (amount IN (299, 24999)),
+  amount NUMERIC(10, 2) NOT NULL CHECK (amount IN (299, 2499)),
   payment_method TEXT NOT NULL CHECK (payment_method IN ('card')),
   payment_status TEXT NOT NULL DEFAULT 'paid' CHECK (payment_status IN ('paid', 'failed', 'cancelled')),
   transaction_reference TEXT NOT NULL,
@@ -44,6 +44,18 @@ CREATE TABLE IF NOT EXISTS vendor_subscription_payments (
   UNIQUE (transaction_reference),
   UNIQUE (user_id, idempotency_key)
 );
+
+ALTER TABLE vendor_subscription_payments
+  DROP CONSTRAINT IF EXISTS vendor_subscription_payments_amount_check;
+
+UPDATE vendor_subscription_payments
+SET amount = 2499
+WHERE subscription_plan = 'annual'
+  AND amount <> 2499;
+
+ALTER TABLE vendor_subscription_payments
+  ADD CONSTRAINT vendor_subscription_payments_amount_check
+  CHECK (amount IN (299, 2499));
 
 ALTER TABLE vendor_applications
   ADD COLUMN IF NOT EXISTS vendor_payment_id UUID REFERENCES vendor_subscription_payments(id) ON DELETE SET NULL;
