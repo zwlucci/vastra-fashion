@@ -110,6 +110,8 @@ export function Pricing() {
   const formRef = useRef(null);
 
   const selected = useMemo(() => plans.find((plan) => plan.id === selectedPlan) || plans[0], [plans, selectedPlan]);
+  const lockedForRole = isAuthenticated && ["vendor", "admin"].includes(user?.role);
+  const formLocked = lockedForRole || application?.status === "pending" || application?.status === "approved";
   const disabledReason = !isAuthenticated
     ? ""
     : user?.role === "vendor"
@@ -238,7 +240,7 @@ export function Pricing() {
                 {plan.benefits.map((benefit) => <li className="flex gap-2" key={benefit}><Check className="mt-0.5 shrink-0 text-clay" size={16} />{benefit}</li>)}
               </ul>
               <div className="mt-auto flex flex-wrap gap-2 pt-2">
-                <button className="btn-secondary" onClick={() => choosePlan(plan.id)} type="button">Select {plan.billingPeriod}</button>
+                <button className="btn-secondary" disabled={lockedForRole} onClick={() => choosePlan(plan.id)} type="button">Select {plan.billingPeriod}</button>
                 <button className="btn-primary" disabled={Boolean(disabledReason) && isAuthenticated} onClick={() => choosePlan(plan.id, true)} type="button"><Store size={16} /> Apply for Vendor</button>
               </div>
               {disabledReason && <p className="text-xs font-semibold text-neutral-500">{disabledReason}</p>}
@@ -261,6 +263,14 @@ export function Pricing() {
               <h3 className="mt-3 text-lg font-black">Login required</h3>
               <p className="mt-1 text-sm text-neutral-500">Create or login to a regular user account before submitting a vendor application.</p>
               <button className="btn-primary mt-4" onClick={() => navigate("/login", { state: { from: { pathname: "/pricing", search: `?plan=${selectedPlan}` } } })} type="button">Login to Apply</button>
+            </div>
+          ) : formLocked ? (
+            <div className="rounded-lg border border-dashed border-neutral-300 p-5 text-center dark:border-neutral-700">
+              <ShieldCheck className="mx-auto text-clay" size={28} />
+              <h3 className="mt-3 text-lg font-black">{user?.role === "vendor" ? "Vendor application locked" : user?.role === "admin" ? "Admin application locked" : "Application locked"}</h3>
+              <p className="mx-auto mt-1 max-w-2xl text-sm text-neutral-500">{disabledReason || "This application state cannot be edited right now."}</p>
+              {user?.role === "vendor" && <Link className="btn-primary mt-4" to="/vendor/dashboard">Go to Vendor Dashboard</Link>}
+              {user?.role === "admin" && <Link className="btn-secondary mt-4" to="/admin/dashboard/vendor-applications">Review Vendor Applications</Link>}
             </div>
           ) : (
             <>

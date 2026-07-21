@@ -78,6 +78,31 @@ function ApplicationModal({ application, decision, setDecision, saving, onClose,
   );
 }
 
+function ReviewConfirmModal({ action, application, saving, onCancel, onConfirm }) {
+  if (!action || !application) return null;
+  const approving = action === "approve";
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-lg border border-neutral-200 bg-white p-5 shadow-2xl dark:border-neutral-800 dark:bg-neutral-900">
+        <p className="text-sm font-bold uppercase tracking-wide text-clay">Confirm review</p>
+        <h3 className="mt-1 text-xl font-black">{approving ? "Approve vendor application?" : "Reject vendor application?"}</h3>
+        <p className="mt-2 text-sm leading-6 text-neutral-600 dark:text-neutral-300">
+          {approving
+            ? `${application.brandName} will be approved and the applicant account will be promoted to vendor.`
+            : `${application.brandName} will be rejected and the applicant can submit a new application later.`}
+        </p>
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <button className="btn-secondary" disabled={saving} onClick={onCancel} type="button">Cancel</button>
+          <button className={approving ? "btn-primary" : "btn-secondary text-red-600"} disabled={saving} onClick={onConfirm} type="button">
+            {approving ? <Check size={16} /> : <X size={16} />}
+            {saving ? "Saving..." : approving ? "Approve" : "Reject"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function AdminVendorApplications() {
   const [searchParams] = useSearchParams();
   const [status, setStatus] = useState("pending");
@@ -86,6 +111,7 @@ export function AdminVendorApplications() {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState(null);
   const [decision, setDecision] = useState({ adminMessage: "" });
+  const [confirmAction, setConfirmAction] = useState("");
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("");
@@ -127,21 +153,26 @@ export function AdminVendorApplications() {
     }
   }
 
-  async function decide(action) {
+  function requestDecision(action) {
     if (!selected) return;
     if (action === "reject" && decision.adminMessage.trim().length < 5) {
       setError("A rejection reason is required.");
       return;
     }
-    const confirmed = window.confirm(action === "approve" ? "Approve this vendor application and promote the user to vendor?" : "Reject this vendor application?");
-    if (!confirmed) return;
+    setError("");
+    setConfirmAction(action);
+  }
+
+  async function confirmDecision() {
+    if (!selected || !confirmAction) return;
     setSaving(true);
     setError("");
     setNotice("");
     try {
-      const { data } = await api.patch(`/admin/vendor-applications/${selected.id}/${action}`, decision);
+      const { data } = await api.patch(`/admin/vendor-applications/${selected.id}/${confirmAction}`, decision);
       setSelected(data.application);
-      setNotice(data.message || `Application ${action}d.`);
+      setNotice(data.message || `Application ${confirmAction}d.`);
+      setConfirmAction("");
       await load();
     } catch (err) {
       setError(getErrorMessage(err));
@@ -153,7 +184,8 @@ export function AdminVendorApplications() {
   return (
     <div className="panel space-y-4">
       {(notice || error) && <p className={`rounded-md p-3 text-sm ${error ? "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-200" : "bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-200"}`}>{error || notice}</p>}
-      <ApplicationModal application={selected} decision={decision} setDecision={setDecision} saving={saving} onClose={() => setSelected(null)} onDecide={decide} />
+      <ApplicationModal application={selected} decision={decision} setDecision={setDecision} saving={saving} onClose={() => setSelected(null)} onDecide={requestDecision} />
+      <ReviewConfirmModal action={confirmAction} application={selected} saving={saving} onCancel={() => setConfirmAction("")} onConfirm={confirmDecision} />
       <div className="flex flex-wrap gap-2">
         {tabs.map(([key, label]) => <button className={status === key ? "btn-primary" : "btn-secondary"} key={key} onClick={() => { setStatus(key); setPage(1); }} type="button">{label}</button>)}
       </div>
